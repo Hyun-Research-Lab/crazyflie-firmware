@@ -49,6 +49,7 @@
 
 static uint8_t motorSetEnable = 0;
 static uint16_t motorPowerSet[] = {0, 0, 0, 0}; // user-requested PWM signals (overrides)
+static uint32_t motorPowerSetAll = 0;
 static uint16_t motor_ratios[] = {0, 0, 0, 0};  // actual PWM signals
 
 #ifdef CONFIG_MOTORS_ESC_PROTOCOL_DSHOT
@@ -500,7 +501,8 @@ void motorsSetRatio(uint32_t id, uint16_t ithrust)
     }
     else if (motorSetEnable == 1)
     {
-      ratio = motorPowerSet[id];
+      // ratio = motorPowerSet[id];
+      ratio = ((motorPowerSetAll >> (id << 3)) & 0xFF) << 8;
     }
 
     motor_ratios[id] = ratio;
@@ -738,6 +740,11 @@ PARAM_ADD_CORE(PARAM_UINT16, m3, &motorPowerSet[2])
  * @brief motor power for m4: `0 - UINT16_MAX`
  */
 PARAM_ADD_CORE(PARAM_UINT16, m4, &motorPowerSet[3])
+
+/**
+ * @brief motor power for all motors: `0 - UINT64_MAX`
+ */
+PARAM_ADD_CORE(PARAM_UINT32, all, &motorPowerSetAll)
 
 PARAM_GROUP_STOP(motorPowerSet)
 
