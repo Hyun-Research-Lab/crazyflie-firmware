@@ -17,9 +17,9 @@ bool controllerOffboardTest() {
 }
 
 void controllerOffboard(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
-  control->controlMode = controlModeForceTorque;
-  control->thrustSi = setpoint->position.x;
-  control->torqueX = setpoint->position.z;
-  control->torqueY = -setpoint->position.y;
-  control->torqueZ = setpoint->attitude.yaw;
+  control->controlMode = controlModeForce;
+  control->normalizedForces[0] = setpoint->position.x;
+  control->normalizedForces[1] = setpoint->position.y;
+  control->normalizedForces[2] = setpoint->position.z;
+  control->normalizedForces[3] = setpoint->attitude.yaw;
 }

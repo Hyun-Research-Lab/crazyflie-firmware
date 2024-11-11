@@ -126,7 +126,15 @@ static void powerDistributionForceTorque(const control_t *control, motors_thrust
 }
 
 static void powerDistributionForce(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
-  // Not implemented yet
+  for (int motorIndex = 0; motorIndex < STABILIZER_NR_OF_MOTORS; motorIndex++) {
+    float motorForce = control->normalizedForces[motorIndex];
+    if (motorForce < 0.0f) {
+      motorForce = 0.0f;
+    }
+
+    float motor_pwm = (-pwmToThrustB + sqrtf(pwmToThrustB * pwmToThrustB + 4.0f * pwmToThrustA * motorForce)) / (2.0f * pwmToThrustA);
+    motorThrustUncapped->list[motorIndex] = motor_pwm * UINT16_MAX;
+  }
 }
 
 void powerDistribution(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped)
