@@ -188,6 +188,7 @@ typedef enum control_mode_e {
   controlModeLegacy      = 0, // legacy mode with int16_t roll, pitch, yaw and float thrust
   controlModeForceTorque = 1,
   controlModeForce       = 2,
+  controlModePwm         = 3
 } control_mode_t;
 
 typedef struct control_s {
