@@ -46,7 +46,7 @@
 // m
 #define ARM_LENGTH  0.046f
 // kg
-#define CF_MASS     0.027f
+#define CF_MASS     0.0316f
 
 // Default PID gains
 #define PID_ROLL_RATE_KP  250.0

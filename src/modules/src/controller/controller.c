@@ -12,7 +12,7 @@
 
 #include "autoconf.h"
 
-#define DEFAULT_CONTROLLER ControllerTypeOffboard;
+#define DEFAULT_CONTROLLER ControllerTypePID;
 static ControllerType currentController = ControllerTypeAutoSelect;
 
 static void initController();
