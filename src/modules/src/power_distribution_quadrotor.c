@@ -56,6 +56,26 @@ static float thrustToTorque = 0.005964552f;
 static float pwmToThrustA = 0.091492681f;
 static float pwmToThrustB = 0.067673604f;
 
+// For optimization
+const static float d_sq = 0.707106781f * ARM_LENGTH;
+const static float c_tf = 0.005964552f;
+// static float T[16] = {    1,      1,     1,    1,
+//                               d_sq, -d_sq, -d_sq, d_sq,
+//                              -d_sq, -d_sq,  d_sq, d_sq,
+//                              -c_tf,  c_tf, -c_tf, c_tf };
+static float T_inv[16] = { 0.25f, -1.0f/(4.0f*d_sq), -1.0f/(4.0f*d_sq), -1.0f/(4.0f*c_tf),
+                           0.25f, -1.0f/(4.0f*d_sq),  1.0f/(4.0f*d_sq),  1.0f/(4.0f*c_tf),
+                           0.25f,  1.0f/(4.0f*d_sq),  1.0f/(4.0f*d_sq), -1.0f/(4.0f*c_tf),
+                           0.25f,  1.0f/(4.0f*d_sq), -1.0f/(4.0f*d_sq),  1.0f/(4.0f*c_tf) };
+static float Q[16] = { c_tf*c_tf + 2*d_sq*d_sq + 1,               1 - c_tf*c_tf, c_tf*c_tf - 2*d_sq*d_sq + 1,               1 - c_tf*c_tf,
+                                     1 - c_tf*c_tf, c_tf*c_tf + 2*d_sq*d_sq + 1,               1 - c_tf*c_tf, c_tf*c_tf - 2*d_sq*d_sq + 1,
+                       c_tf*c_tf - 2*d_sq*d_sq + 1,               1 - c_tf*c_tf, c_tf*c_tf + 2*d_sq*d_sq + 1,               1 - c_tf*c_tf,
+                                     1 - c_tf*c_tf, c_tf*c_tf - 2*d_sq*d_sq + 1,               1 - c_tf*c_tf, c_tf*c_tf + 2*d_sq*d_sq + 1 };
+
+// Helper functions for optimization
+static void matrixVectorMultiply(float matrix[16], float vector[4], float result[4]);
+static void solveLinearSystemPlusVector(float A[16], float b[4], float v[4], float out[4]);
+
 int powerDistributionMotorType(uint32_t id)
 {
   return 1;
@@ -100,22 +120,68 @@ static void powerDistributionLegacy(const control_t *control, motors_thrust_unca
   motorThrustUncapped->motors.m4 = control->thrust + r + p - control->yaw;
 }
 
-static void powerDistributionForceTorque(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
-  static float motorForces[STABILIZER_NR_OF_MOTORS];
+// static void powerDistributionForceTorque(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
+//   static float motorForces[STABILIZER_NR_OF_MOTORS];
 
-  const float arm = 0.707106781f * armLength;
-  const float rollPart = 0.25f / arm * control->torqueX;
-  const float pitchPart = 0.25f / arm * control->torqueY;
-  const float thrustPart = 0.25f * control->thrustSi; // N (per rotor)
-  const float yawPart = 0.25f * control->torqueZ / thrustToTorque;
+//   const float arm = 0.707106781f * armLength;
+//   const float rollPart = 0.25f / arm * control->torqueX;
+//   const float pitchPart = 0.25f / arm * control->torqueY;
+//   const float thrustPart = 0.25f * control->thrustSi; // N (per rotor)
+//   const float yawPart = 0.25f * control->torqueZ / thrustToTorque;
 
-  motorForces[0] = thrustPart - rollPart - pitchPart - yawPart;
-  motorForces[1] = thrustPart - rollPart + pitchPart + yawPart;
-  motorForces[2] = thrustPart + rollPart + pitchPart - yawPart;
-  motorForces[3] = thrustPart + rollPart - pitchPart + yawPart;
+//   motorForces[0] = thrustPart - rollPart - pitchPart - yawPart;
+//   motorForces[1] = thrustPart - rollPart + pitchPart + yawPart;
+//   motorForces[2] = thrustPart + rollPart + pitchPart - yawPart;
+//   motorForces[3] = thrustPart + rollPart - pitchPart + yawPart;
+
+//   for (int motorIndex = 0; motorIndex < STABILIZER_NR_OF_MOTORS; motorIndex++) {
+//     float motorForce = motorForces[motorIndex];
+//     if (motorForce < 0.0f) {
+//       motorForce = 0.0f;
+//     }
+
+//     float motor_pwm = (-pwmToThrustB + sqrtf(pwmToThrustB * pwmToThrustB + 4.0f * pwmToThrustA * motorForce)) / (2.0f * pwmToThrustA);
+//     motorThrustUncapped->list[motorIndex] = motor_pwm * UINT16_MAX;
+//   }
+// }
+
+static void powerDistributionForceTorqueOptimal(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
+  float motorForces[STABILIZER_NR_OF_MOTORS];
+
+  // Optimization
+  float wrench[4];
+  wrench[0] = control->thrustSi;
+  wrench[1] = control->torqueX;
+  wrench[2] = control->torqueY;
+  wrench[3] = control->torqueZ;
+
+  float F_star[4];
+  matrixVectorMultiply(T_inv, wrench, F_star);
+
+  float A[16];
+  float b[4] = {0, 0, 0, 0};
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 4; j++) {
+      if (F_star[i] >= 0 && F_star[j] >= 0) {
+        A[i*4 + j] = Q[i*4 + j];
+      } else if (i == j) {
+        A[i*4 + j] = 1;
+      } else {
+        A[i*4 + j] = 0;
+      }
+      if (F_star[i] >= 0 && F_star[j] < 0) {
+        b[i] += Q[i*4 + j]*F_star[j];
+      }
+    }
+    if (F_star[i] < 0) {
+      b[i] = -F_star[i];
+    }
+  }
+
+  solveLinearSystemPlusVector(A, b, F_star, motorForces);
 
   for (int motorIndex = 0; motorIndex < STABILIZER_NR_OF_MOTORS; motorIndex++) {
-    float motorForce = motorForces[motorIndex];
+    float motorForce = F_star[motorIndex];
     if (motorForce < 0.0f) {
       motorForce = 0.0f;
     }
@@ -150,7 +216,7 @@ void powerDistribution(const control_t *control, motors_thrust_uncapped_t* motor
       powerDistributionLegacy(control, motorThrustUncapped);
       break;
     case controlModeForceTorque:
-      powerDistributionForceTorque(control, motorThrustUncapped);
+      powerDistributionForceTorqueOptimal(control, motorThrustUncapped);
       break;
     case controlModeForce:
       powerDistributionForce(control, motorThrustUncapped);
@@ -209,6 +275,60 @@ float powerDistributionGetMaxThrust() {
   // max thrust per rotor occurs if normalized PWM is 1
   // pwmToThrustA * pwm * pwm + pwmToThrustB * pwm = pwmToThrustA + pwmToThrustB
   return STABILIZER_NR_OF_MOTORS * (pwmToThrustA + pwmToThrustB);
+}
+
+// Helper functions for optimization
+static void matrixVectorMultiply(float matrix[16], float vector[4], float result[4]) {
+  for (int i = 0; i < 4; i++) {
+    result[i] = 0;
+    for (int j = 0; j < 4; j++) {
+      result[i] += matrix[i*4 + j] * vector[j];
+    }
+  }
+}
+
+static void solveLinearSystemPlusVector(float A[16], float b[4], float v[4], float out[4]) {
+    float x[4];
+    
+    float augmented[4*5]; // Augmented matrix as a flat array
+    int i, j, k;
+
+    // Fill the augmented matrix
+    for (i = 0; i < 4; i++) {
+        for (j = 0; j < 4; j++) {
+            augmented[i*5 + j] = A[i*4 + j]; // Copy A
+        }
+        augmented[i*5 + 4] = b[i]; // Add b as the last column
+    }
+
+    // Gaussian elimination
+    for (i = 0; i < 4; i++) {
+        // Pivot normalization
+        float pivot = augmented[i*5 + i];
+        for (j = i; j <= 4; j++) { // Include the augmented column
+            augmented[i*5 + j] /= pivot;
+        }
+
+        // Eliminate below
+        for (k = i + 1; k < 4; k++) {
+            float ratio = augmented[k*5 + i];
+            for (j = i; j <= 4; j++) {
+                augmented[k*5 + j] -= ratio * augmented[i*5 + j];
+            }
+        }
+    }
+
+    // Back-substitution
+    for (i = 4 - 1; i >= 0; i--) {
+        x[i] = augmented[i*5 + 4]; // Start with the augmented column value
+        for (j = i + 1; j < 4; j++) {
+            x[i] -= augmented[i*5 + j] * x[j];
+        }
+    }
+
+    for (i = 0; i < 4; i++) {
+        out[i] = x[i] + v[i];
+    }
 }
 
 /**
