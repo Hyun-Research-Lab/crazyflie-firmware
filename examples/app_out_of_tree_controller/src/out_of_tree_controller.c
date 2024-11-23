@@ -34,30 +34,32 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-// Edit the debug name to get nice debug prints
 #define DEBUG_MODULE "MYCONTROLLER"
 #include "debug.h"
 
+#include "controller.h"
+#include "math3d.h"
+#include "controller_lee.h"
+#include "platform_defaults.h"
+#include "physicalConstants.h"
+#include "commander.h"
 
-// We still need an appMain() function, but we will not really use it. Just let it quietly sleep.
 void appMain() {
   DEBUG_PRINT("Waiting for activation ...\n");
 
   while(1) {
     vTaskDelay(M2T(2000));
+
+    setpoint_t setpoint = {
+      .mode = { modeAbs, modeAbs, modeAbs, modeAbs, modeAbs, modeAbs, modeAbs },
+      .position = {0.0f, 0.0f, 1.0f},
+      .velocity = {0.0f, 0.0f, 0.0f},
+      .acceleration = {0.0f, 0.0f, 0.0f},
+      .attitude.yaw = 0.0f,
+    };
+    commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_DISABLE);
   }
 }
-
-// The new controller goes here --------------------------------------------
-// Move the includes to the the top of the file if you want to
-#include "controller.h"
-
-// Call the PID controller in this example to make it possible to fly. When you implement you own controller, there is
-// no need to include the pid controller.
-#include "math3d.h"
-#include "controller_lee.h"
-#include "platform_defaults.h"
-#include "physicalConstants.h"
 
 static inline struct mat33 mlog(struct mat33 R) {
 	float acosinput = (R.m[0][0] + R.m[1][1] + R.m[2][2] - 1) / 2.0f;
@@ -104,25 +106,23 @@ static controllerLee_t g_self2 = {
   .KR = {0.007, 0.007, 0.008},
   .Komega = {0.00115, 0.00115, 0.002},
   .KI = {0.03, 0.03, 0.03},
-
-  // New stuff
-  .R_des.m = {
-    {1.0f, 0.0f, 0.0f},
-    {0.0f, 1.0f, 0.0f},
-    {0.0f, 0.0f, 1.0f}
-  },
-  .omega_r = {0.0f, 0.0f, 0.0f}
 };
 
 void controllerOutOfTreeInit() {
-  controllerLeeInit(&g_self2);
+  g_self2.R_des = mzero();
+  g_self2.omega_r = vzero();
 }
 
 bool controllerOutOfTreeTest() {
-  return controllerLeeFirmwareTest();
+  return true;
 }
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
+  // Hopefully everything is modeAbs?
+  // if (!(setpoint->mode.x == modeAbs || setpoint->mode.y == modeAbs || setpoint->mode.z == modeAbs)) {
+  //   return;
+  // }
+  
   if (!RATE_DO_EXECUTE(ATTITUDE_RATE, tick)) {
     return;
   }
@@ -155,7 +155,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   float f = 0.0f;
   struct vec M = vzero();
 
-  if (vneq(mcolumn(self.R_des, 0), vbasis(0)) && veq(mcolumn(self.R_des, 1), vbasis(1)) && veq(mcolumn(self.R_des, 2), vbasis(2))) {
+  if (vneq(mcolumn(self.R_des, 0), vzero()) && veq(mcolumn(self.R_des, 1), vzero()) && veq(mcolumn(self.R_des, 2), vzero())) {
     struct vec W_d = mvee(mscl(1.0f/dt, mlog(mmul(mtranspose(self.R_des), R_d))));
     if (vneq(self.omega_r, vzero())) {
       struct vec W_d_dot = vdiv(vsub(W_d, self.omega_r), dt);
