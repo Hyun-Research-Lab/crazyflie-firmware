@@ -45,19 +45,20 @@
 #include "commander.h"
 
 void appMain() {
-  DEBUG_PRINT("Waiting for activation ...\n");
+  // DEBUG_PRINT("New Taeyoung Lee Controller!\n");
 
   while(1) {
     vTaskDelay(M2T(2000));
+    // DEBUG_PRINT("New Taeyoung Lee Controller!\n");
 
-    setpoint_t setpoint = {
-      .mode = { modeAbs, modeAbs, modeAbs, modeAbs, modeAbs, modeAbs, modeAbs },
-      .position = {0.0f, 0.0f, 1.0f},
-      .velocity = {0.0f, 0.0f, 0.0f},
-      .acceleration = {0.0f, 0.0f, 0.0f},
-      .attitude.yaw = 0.0f,
-    };
-    commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_DISABLE);
+    // setpoint_t setpoint = {
+    //   .mode = { modeAbs, modeAbs, modeAbs, modeAbs, modeAbs, modeAbs, modeAbs },
+    //   .position = {0.0f, 0.0f, 1.0f},
+    //   .velocity = {0.0f, 0.0f, 0.0f},
+    //   .acceleration = {0.0f, 0.0f, 0.0f},
+    //   .attitude.yaw = 0.0f,
+    // };
+    // commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_DISABLE);
   }
 }
 
