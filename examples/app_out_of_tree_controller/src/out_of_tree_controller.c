@@ -43,6 +43,7 @@
 #include "platform_defaults.h"
 #include "physicalConstants.h"
 #include "commander.h"
+#include "power_distribution.h"
 
 void appMain() {
   // DEBUG_PRINT("New Taeyoung Lee Controller!\n");
@@ -119,44 +120,76 @@ bool controllerOutOfTreeTest() {
 }
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
-  // Hopefully everything is modeAbs?
-  // if (!(setpoint->mode.x == modeAbs || setpoint->mode.y == modeAbs || setpoint->mode.z == modeAbs)) {
-  //   return;
-  // }
-  
   if (!RATE_DO_EXECUTE(ATTITUDE_RATE, tick)) {
     return;
   }
   
   controllerLee_t self = g_self2;
   float dt = (float)(1.0f/ATTITUDE_RATE);
-  
+
+  // States
   struct vec x = mkvec(state->position.x, state->position.y, state->position.z);
   struct vec v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z);
   struct mat33 R = quat2rotmat(mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w));
-  struct vec W = mkvec(sensors->gyro.x, sensors->gyro.y, sensors->gyro.z);
+  struct vec W = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z));
 
-  struct vec x_d = mkvec(setpoint->position.x, setpoint->position.y, setpoint->position.z);
-  struct vec v_d = mkvec(setpoint->velocity.x, setpoint->velocity.y, setpoint->velocity.z);
-  struct vec a_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z);
-  struct vec b1_d = mcolumn(maxisangle(vbasis(2), radians(setpoint->attitude.yaw)), 0);
-
-  struct vec ex = vsub(x, x_d);
-  struct vec ev = vsub(v, v_d);
+  float desiredYaw = 0;
+  if (setpoint->mode.yaw == modeVelocity) {
+    desiredYaw = radians(state->attitude.yaw + setpoint->attitudeRate.yaw * dt);
+  } else if (setpoint->mode.yaw == modeAbs) {
+    desiredYaw = radians(setpoint->attitude.yaw);
+  } else if (setpoint->mode.quat == modeAbs) {
+    struct quat setpoint_quat = mkquat(setpoint->attitudeQuaternion.x, setpoint->attitudeQuaternion.y, setpoint->attitudeQuaternion.z, setpoint->attitudeQuaternion.w);
+    desiredYaw = quat2rpy(setpoint_quat).z;
+  }
   
-  struct vec F_d = vadd4(
-    vneg(veltmul(self.Kpos_P, ex)),
-    vneg(veltmul(self.Kpos_D, ev)),
-    vscl(self.mass, a_d),
-    vscl(self.mass*GRAVITY_MAGNITUDE, vbasis(2)));
-  struct vec b3_d = vnormalize(F_d);
-  struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
-  struct mat33 R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
+  // Calculate f and R_d
+  float f;
+  struct mat33 R_d;
+  if (setpoint->mode.x == modeAbs || setpoint->mode.y == modeAbs || setpoint->mode.z == modeAbs) {
+    struct vec x_d = mkvec(setpoint->position.x, setpoint->position.y, setpoint->position.z);
+    struct vec v_d = mkvec(setpoint->velocity.x, setpoint->velocity.y, setpoint->velocity.z);
+    struct vec a_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z);
+    struct vec b1_d = mkvec(cosf(desiredYaw), sinf(desiredYaw), 0);
 
-  float f = 0.0f;
+    struct vec ex = vsub(x, x_d);
+    struct vec ev = vsub(v, v_d);
+    
+    struct vec F_d = vadd4(
+      vneg(veltmul(self.Kpos_P, ex)),
+      vneg(veltmul(self.Kpos_D, ev)),
+      vscl(self.mass, a_d),
+      vscl(self.mass*GRAVITY_MAGNITUDE, vbasis(2)));
+    f = vdot(F_d, mvmul(R, vbasis(2)));
+
+    struct vec b3_d = vnormalize(F_d);
+    struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
+    R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
+
+  } else {
+    if (setpoint->mode.z == modeDisable) {
+      if (setpoint->thrust < 1000) {
+          control->controlMode = controlModeForceTorque;
+          control->thrustSi  = 0;
+          control->torque[0] = 0;
+          control->torque[1] = 0;
+          control->torque[2] = 0;
+          return;
+      }
+    }
+    const float max_thrust = powerDistributionGetMaxThrust(); // N
+    f = setpoint->thrust / UINT16_MAX * max_thrust;
+
+    R_d = quat2rotmat(rpy2quat(mkvec(
+      radians(setpoint->attitude.roll),
+      -radians(setpoint->attitude.pitch), // This is in the legacy coordinate system where pitch is inverted
+      desiredYaw)));
+  }
+
+  // Calculate M
   struct vec M = vzero();
 
-  if (vneq(mcolumn(self.R_des, 0), vzero()) && veq(mcolumn(self.R_des, 1), vzero()) && veq(mcolumn(self.R_des, 2), vzero())) {
+  if (vneq(mcolumn(self.R_des, 0), vzero()) && vneq(mcolumn(self.R_des, 1), vzero()) && vneq(mcolumn(self.R_des, 2), vzero())) {
     struct vec W_d = mvee(mscl(1.0f/dt, mlog(mmul(mtranspose(self.R_des), R_d))));
     if (vneq(self.omega_r, vzero())) {
       struct vec W_d_dot = vdiv(vsub(W_d, self.omega_r), dt);
@@ -166,7 +199,6 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
         mmul(mtranspose(R), R_d))));
       struct vec eW = vsub(W, mvmul(mtranspose(R), mvmul(R_d, W_d)));
 
-      f = vdot(F_d, mvmul(R, vbasis(2)));
       M = vadd4(
         vneg(veltmul(self.KR, eR)),
         vneg(veltmul(self.Komega, eW)),
