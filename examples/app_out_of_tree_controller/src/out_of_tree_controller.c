@@ -88,31 +88,21 @@ static inline struct vec mvee(struct mat33 R) {
 }
 
 static controllerLee_t g_self2 = {
-  .mass = CF_MASS,
-
-  // Inertia matrix (diagonal matrix), see
-  // System Identification of the Crazyflie 2.0 Nano Quadrocopter
-  // BA theses, Julian Foerster, ETHZ
-  // https://polybox.ethz.ch/index.php/s/20dde63ee00ffe7085964393a55a91c7
+  .mass = CF_MASS, // kg
   .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
 
-  // Position PID
-  .Kpos_P = {7.0, 7.0, 7.0}, // Kp in paper
-  .Kpos_P_limit = 100,
-  .Kpos_D = {4.0, 4.0, 4.0}, // Kv in paper
-  .Kpos_D_limit = 100,
-  .Kpos_I = {0.0, 0.0, 0.0}, // not in paper
-  .Kpos_I_limit = 2,
+  .Kpos_P = {0.21, 0.21, 0.21},
+  .Kpos_D = {0.12, 0.12, 0.12},
 
-  // Attitude PID
-  .KR = {0.007, 0.007, 0.008},
-  .Komega = {0.00115, 0.00115, 0.002},
-  .KI = {0.03, 0.03, 0.03},
+  .KR = {0.0007, 0.0007, 0.0008},
+  .Komega = {0.000115, 0.000115, 0.0002},
 };
 
+void controllerLee2Init(controllerLee_t* self);
+void controllerLee2(controllerLee_t* self, control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick);
+
 void controllerOutOfTreeInit() {
-  g_self2.R_des = mzero();
-  g_self2.omega_r = vzero();
+  controllerLee2Init(&g_self2);
 }
 
 bool controllerOutOfTreeTest() {
@@ -120,11 +110,23 @@ bool controllerOutOfTreeTest() {
 }
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
+  controllerLee2(&g_self2, control, setpoint, sensors, state, tick);
+}
+
+// Inner functions
+void controllerLee2Init(controllerLee_t* self) {  
+  self->Kpos_I_limit = 0;
+  self->Kpos_I = vzero();
+  
+  self->R_des = mzero();
+  self->omega_r = vzero();
+}
+
+void controllerLee2(controllerLee_t* self, control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
   if (!RATE_DO_EXECUTE(ATTITUDE_RATE, tick)) {
     return;
   }
   
-  controllerLee_t self = g_self2;
   float dt = (float)(1.0f/ATTITUDE_RATE);
 
   // States
@@ -156,10 +158,10 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec ev = vsub(v, v_d);
     
     struct vec F_d = vadd4(
-      vneg(veltmul(self.Kpos_P, ex)),
-      vneg(veltmul(self.Kpos_D, ev)),
-      vscl(self.mass, a_d),
-      vscl(self.mass*GRAVITY_MAGNITUDE, vbasis(2)));
+      vneg(veltmul(self->Kpos_P, ex)),
+      vneg(veltmul(self->Kpos_D, ev)),
+      vscl(self->mass, a_d),
+      vscl(self->mass*GRAVITY_MAGNITUDE, vbasis(2)));
     f = vdot(F_d, mvmul(R, vbasis(2)));
 
     struct vec b3_d = vnormalize(F_d);
@@ -189,10 +191,10 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   // Calculate M
   struct vec M = vzero();
 
-  if (vneq(mcolumn(self.R_des, 0), vzero()) && vneq(mcolumn(self.R_des, 1), vzero()) && vneq(mcolumn(self.R_des, 2), vzero())) {
-    struct vec W_d = mvee(mscl(1.0f/dt, mlog(mmul(mtranspose(self.R_des), R_d))));
-    if (vneq(self.omega_r, vzero())) {
-      struct vec W_d_dot = vdiv(vsub(W_d, self.omega_r), dt);
+  if (vneq(mcolumn(self->R_des, 0), vzero()) && vneq(mcolumn(self->R_des, 1), vzero()) && vneq(mcolumn(self->R_des, 2), vzero())) {
+    struct vec W_d = mvee(mscl(1.0f/dt, mlog(mmul(mtranspose(self->R_des), R_d))));
+    if (vneq(self->omega_r, vzero())) {
+      struct vec W_d_dot = vdiv(vsub(W_d, self->omega_r), dt);
 
       struct vec eR = vscl(0.5f, mvee(msub(
         mmul(mtranspose(R_d), R),
@@ -200,20 +202,37 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       struct vec eW = vsub(W, mvmul(mtranspose(R), mvmul(R_d, W_d)));
 
       M = vadd4(
-        vneg(veltmul(self.KR, eR)),
-        vneg(veltmul(self.Komega, eW)),
-        vcross(W, veltmul(self.J, W)),
-        vneg(veltmul(self.J, vsub(
+        vneg(veltmul(self->KR, eR)),
+        vneg(veltmul(self->Komega, eW)),
+        vcross(W, veltmul(self->J, W)),
+        vneg(veltmul(self->J, vsub(
           vcross(W, mvmul(mtranspose(R), mvmul(R_d, W_d))),
           mvmul(mtranspose(R), mvmul(R_d, W_d_dot))))));
     }
-    self.omega_r = W_d;
+    self->omega_r = W_d;
   }  
-  self.R_des = R_d;
+  self->R_des = R_d;
 
   control->controlMode = controlModeForceTorque;
   control->thrustSi = f;
   control->torque[0] = M.x;
   control->torque[1] = M.y;
   control->torque[2] = M.z;
+
+  self->Kpos_I_limit = f;
+  self->Kpos_I.x = M.x;
+  self->Kpos_I.y = M.y;
+  self->Kpos_I.z = M.z;
 }
+
+#include "param.h"
+#include "log.h"
+
+LOG_GROUP_START(ctrlLee2)
+
+LOG_ADD(LOG_FLOAT, f, &g_self2.Kpos_I_limit)
+LOG_ADD(LOG_FLOAT, M1, &g_self2.Kpos_I.x)
+LOG_ADD(LOG_FLOAT, M2, &g_self2.Kpos_I.y)
+LOG_ADD(LOG_FLOAT, M3, &g_self2.Kpos_I.z)
+
+LOG_GROUP_STOP(ctrlLee2)
