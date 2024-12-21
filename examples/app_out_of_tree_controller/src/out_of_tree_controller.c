@@ -28,6 +28,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <math.h>
 
 #include "app.h"
 
@@ -91,11 +92,11 @@ static controllerLee_t g_self2 = {
   .mass = CF_MASS, // kg
   .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
 
-  .Kpos_P = {0.21, 0.21, 0.21},
-  .Kpos_D = {0.12, 0.12, 0.12},
+  .Kpos_P = {7.0, 7.0, 7.0},
+  .Kpos_D = {4.0, 4.0, 4.0},
 
-  .KR = {0.0007, 0.0007, 0.0008},
-  .Komega = {0.000115, 0.000115, 0.0002},
+  .KR = {0.007, 0.007, 0.008},
+  .Komega = {0.00115, 0.00115, 0.002},
 };
 
 void controllerLee2Init(controllerLee_t* self);
@@ -118,8 +119,11 @@ void controllerLee2Init(controllerLee_t* self) {
   self->Kpos_I_limit = 0;
   self->Kpos_I = vzero();
   
-  self->R_des = mzero();
-  self->omega_r = vzero();
+  self->R_des = mcolumns(vrepeat(NAN), vrepeat(NAN), vrepeat(NAN));
+  self->omega_r = vrepeat(NAN);
+
+  self->rpy = vzero();
+  self->rpy_des = vzero();
 }
 
 void controllerLee2(controllerLee_t* self, control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
@@ -132,7 +136,9 @@ void controllerLee2(controllerLee_t* self, control_t *control, const setpoint_t 
   // States
   struct vec x = mkvec(state->position.x, state->position.y, state->position.z);
   struct vec v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z);
-  struct mat33 R = quat2rotmat(mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w));
+  struct quat q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
+  struct mat33 R = quat2rotmat(q);
+  self->rpy = quat2rpy(q);
   struct vec W = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z));
 
   float desiredYaw = 0;
@@ -157,11 +163,11 @@ void controllerLee2(controllerLee_t* self, control_t *control, const setpoint_t 
     struct vec ex = vsub(x, x_d);
     struct vec ev = vsub(v, v_d);
     
-    struct vec F_d = vadd4(
+    struct vec F_d = vscl(self->mass, vadd4(
       vneg(veltmul(self->Kpos_P, ex)),
       vneg(veltmul(self->Kpos_D, ev)),
-      vscl(self->mass, a_d),
-      vscl(self->mass*GRAVITY_MAGNITUDE, vbasis(2)));
+      a_d,
+      vscl(GRAVITY_MAGNITUDE, vbasis(2))));
     f = vdot(F_d, mvmul(R, vbasis(2)));
 
     struct vec b3_d = vnormalize(F_d);
@@ -169,15 +175,13 @@ void controllerLee2(controllerLee_t* self, control_t *control, const setpoint_t 
     R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
 
   } else {
-    if (setpoint->mode.z == modeDisable) {
-      if (setpoint->thrust < 1000) {
-          control->controlMode = controlModeForceTorque;
-          control->thrustSi  = 0;
-          control->torque[0] = 0;
-          control->torque[1] = 0;
-          control->torque[2] = 0;
-          return;
-      }
+    if (setpoint->mode.z == modeDisable && setpoint->thrust < 1000) {
+      control->controlMode = controlModeForceTorque;
+      control->thrustSi  = 0;
+      control->torque[0] = 0;
+      control->torque[1] = 0;
+      control->torque[2] = 0;
+      return;
     }
     const float max_thrust = powerDistributionGetMaxThrust(); // N
     f = setpoint->thrust / UINT16_MAX * max_thrust;
@@ -191,15 +195,17 @@ void controllerLee2(controllerLee_t* self, control_t *control, const setpoint_t 
   // Calculate M
   struct vec M = vzero();
 
-  if (vneq(mcolumn(self->R_des, 0), vzero()) && vneq(mcolumn(self->R_des, 1), vzero()) && vneq(mcolumn(self->R_des, 2), vzero())) {
+  if (vneq(mcolumn(self->R_des, 0), vrepeat(NAN)) && vneq(mcolumn(self->R_des, 1), vrepeat(NAN)) && vneq(mcolumn(self->R_des, 2), vrepeat(NAN))) {
     struct vec W_d = mvee(mscl(1.0f/dt, mlog(mmul(mtranspose(self->R_des), R_d))));
-    if (vneq(self->omega_r, vzero())) {
+    if (vneq(self->omega_r, vrepeat(NAN))) {
       struct vec W_d_dot = vdiv(vsub(W_d, self->omega_r), dt);
 
       struct vec eR = vscl(0.5f, mvee(msub(
         mmul(mtranspose(R_d), R),
         mmul(mtranspose(R), R_d))));
       struct vec eW = vsub(W, mvmul(mtranspose(R), mvmul(R_d, W_d)));
+
+      self->rpy_des = eW;
 
       M = vadd4(
         vneg(veltmul(self->KR, eR)),
@@ -212,6 +218,7 @@ void controllerLee2(controllerLee_t* self, control_t *control, const setpoint_t 
     self->omega_r = W_d;
   }  
   self->R_des = R_d;
+  self->rpy = mcolumn(self->R_des, 0);
 
   control->controlMode = controlModeForceTorque;
   control->thrustSi = f;
@@ -228,11 +235,41 @@ void controllerLee2(controllerLee_t* self, control_t *control, const setpoint_t 
 #include "param.h"
 #include "log.h"
 
+PARAM_GROUP_START(ctrlLee2)
+
+PARAM_ADD(PARAM_FLOAT, kx_x, &g_self2.Kpos_P.x)
+PARAM_ADD(PARAM_FLOAT, kx_y, &g_self2.Kpos_P.y)
+PARAM_ADD(PARAM_FLOAT, kx_z, &g_self2.Kpos_P.z)
+
+PARAM_ADD(PARAM_FLOAT, kv_x, &g_self2.Kpos_D.x)
+PARAM_ADD(PARAM_FLOAT, kv_y, &g_self2.Kpos_D.y)
+PARAM_ADD(PARAM_FLOAT, kv_z, &g_self2.Kpos_D.z)
+
+PARAM_ADD(PARAM_FLOAT, kR_x, &g_self2.KR.x)
+PARAM_ADD(PARAM_FLOAT, kR_y, &g_self2.KR.y)
+PARAM_ADD(PARAM_FLOAT, kR_z, &g_self2.KR.z)
+
+PARAM_ADD(PARAM_FLOAT, kW_x, &g_self2.Komega.x)
+PARAM_ADD(PARAM_FLOAT, kW_y, &g_self2.Komega.y)
+PARAM_ADD(PARAM_FLOAT, kW_z, &g_self2.Komega.z)
+
+PARAM_GROUP_STOP(ctrlLee2)
+
 LOG_GROUP_START(ctrlLee2)
 
 LOG_ADD(LOG_FLOAT, f, &g_self2.Kpos_I_limit)
 LOG_ADD(LOG_FLOAT, M1, &g_self2.Kpos_I.x)
 LOG_ADD(LOG_FLOAT, M2, &g_self2.Kpos_I.y)
 LOG_ADD(LOG_FLOAT, M3, &g_self2.Kpos_I.z)
+
+// current angles
+LOG_ADD(LOG_FLOAT, rpyx, &g_self2.rpy.x)
+LOG_ADD(LOG_FLOAT, rpyy, &g_self2.rpy.y)
+LOG_ADD(LOG_FLOAT, rpyz, &g_self2.rpy.z)
+
+// desired angles
+LOG_ADD(LOG_FLOAT, rpydx, &g_self2.rpy_des.x)
+LOG_ADD(LOG_FLOAT, rpydy, &g_self2.rpy_des.y)
+LOG_ADD(LOG_FLOAT, rpydz, &g_self2.rpy_des.z)
 
 LOG_GROUP_STOP(ctrlLee2)
