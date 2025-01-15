@@ -67,50 +67,8 @@ void setDesiredAttitude(float thrust_g, float roll, float pitch, float yaw) {
 }
 
 void appMain() {
-  // int t_ms = 0;
-
-  // vTaskDelay(M2T(2000));
-
   while (1) {
-    // if (t_ms < 2000) {
-    //   setDesiredAttitude(0.035f, 0.0f, 0.0f, 0.0f);
-    
-    // } else if (t_ms < 2500) {
-    //   setDesiredAttitude(0.036f, 40.0f, 0.0f, 0.0f);
-    // } else if (t_ms < 3000) {
-    //   setDesiredAttitude(0.036f, -40.0f, 0.0f, 0.0f);
-    // } else if (t_ms < 3500) {
-    //   setDesiredAttitude(0.036f, 0.0f, 0.0f, 0.0f);
-    
-    // } else if (t_ms < 4000) {
-    //   setDesiredAttitude(0.036f, 0.0f, 40.0f, 0.0f);
-    // } else if (t_ms < 4500) {
-    //   setDesiredAttitude(0.036f, 0.0f, -40.0f, 0.0f);
-    // } else if (t_ms < 5000) {
-    //   setDesiredAttitude(0.036f, 0.0f, 0.0f, 0.0f);
-
-    // } else if (t_ms < 5500) {
-    //   setDesiredAttitude(0.036f, -40.0f, 0.0f, 0.0f);
-    // } else if (t_ms < 6000) {
-    //   setDesiredAttitude(0.036f, 40.0f, 0.0f, 0.0f);
-    // } else if (t_ms < 6500) {
-    //   setDesiredAttitude(0.036f, 0.0f, 0.0f, 0.0f);
-
-    // } else if (t_ms < 7000) {
-    //   setDesiredAttitude(0.036f, 0.0f, -40.0f, 0.0f);
-    // } else if (t_ms < 7500) {
-    //   setDesiredAttitude(0.036f, 0.0f, 40.0f, 0.0f);
-    // } else if (t_ms < 8000) {
-    //   setDesiredAttitude(0.036f, 0.0f, 0.0f, 0.0f);
-
-    // } else if (t_ms < 8500) {
-    //   setDesiredAttitude(0.027f, 0.0f, 0.0f, 0.0f);
-    // } else {
-    //   // setDesiredAttitude(0.0f, 0.0f, 0.0f, 0.0f);
-    // }
-    
     vTaskDelay(M2T(2000));
-    // t_ms += 100;
   }
 }
 
