@@ -45,22 +45,72 @@
 #include "physicalConstants.h"
 #include "commander.h"
 #include "power_distribution.h"
+#include "crtp_commander_high_level.h"
+#include "param.h"
+#include "log.h"
+
+void setDesiredAttitude(float thrust_g, float roll, float pitch, float yaw) {
+  float f = thrust_g*GRAVITY_MAGNITUDE;
+  float thrust = f / powerDistributionGetMaxThrust() * UINT16_MAX;
+
+  setpoint_t setpoint;
+  setpoint.mode.x = modeVelocity;
+  setpoint.mode.y = modeVelocity;
+  setpoint.mode.z = modeVelocity;
+
+  setpoint.thrust = thrust;
+  setpoint.attitude.roll = roll;
+  setpoint.attitude.pitch = pitch;
+  setpoint.attitude.yaw = yaw;
+
+  commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
+}
 
 void appMain() {
-  // DEBUG_PRINT("New Taeyoung Lee Controller!\n");
+  // int t_ms = 0;
 
-  while(1) {
+  // vTaskDelay(M2T(2000));
+
+  while (1) {
+    // if (t_ms < 2000) {
+    //   setDesiredAttitude(0.035f, 0.0f, 0.0f, 0.0f);
+    
+    // } else if (t_ms < 2500) {
+    //   setDesiredAttitude(0.036f, 40.0f, 0.0f, 0.0f);
+    // } else if (t_ms < 3000) {
+    //   setDesiredAttitude(0.036f, -40.0f, 0.0f, 0.0f);
+    // } else if (t_ms < 3500) {
+    //   setDesiredAttitude(0.036f, 0.0f, 0.0f, 0.0f);
+    
+    // } else if (t_ms < 4000) {
+    //   setDesiredAttitude(0.036f, 0.0f, 40.0f, 0.0f);
+    // } else if (t_ms < 4500) {
+    //   setDesiredAttitude(0.036f, 0.0f, -40.0f, 0.0f);
+    // } else if (t_ms < 5000) {
+    //   setDesiredAttitude(0.036f, 0.0f, 0.0f, 0.0f);
+
+    // } else if (t_ms < 5500) {
+    //   setDesiredAttitude(0.036f, -40.0f, 0.0f, 0.0f);
+    // } else if (t_ms < 6000) {
+    //   setDesiredAttitude(0.036f, 40.0f, 0.0f, 0.0f);
+    // } else if (t_ms < 6500) {
+    //   setDesiredAttitude(0.036f, 0.0f, 0.0f, 0.0f);
+
+    // } else if (t_ms < 7000) {
+    //   setDesiredAttitude(0.036f, 0.0f, -40.0f, 0.0f);
+    // } else if (t_ms < 7500) {
+    //   setDesiredAttitude(0.036f, 0.0f, 40.0f, 0.0f);
+    // } else if (t_ms < 8000) {
+    //   setDesiredAttitude(0.036f, 0.0f, 0.0f, 0.0f);
+
+    // } else if (t_ms < 8500) {
+    //   setDesiredAttitude(0.027f, 0.0f, 0.0f, 0.0f);
+    // } else {
+    //   // setDesiredAttitude(0.0f, 0.0f, 0.0f, 0.0f);
+    // }
+    
     vTaskDelay(M2T(2000));
-    // DEBUG_PRINT("New Taeyoung Lee Controller!\n");
-
-    // setpoint_t setpoint = {
-    //   .mode = { modeAbs, modeAbs, modeAbs, modeAbs, modeAbs, modeAbs, modeAbs },
-    //   .position = {0.0f, 0.0f, 1.0f},
-    //   .velocity = {0.0f, 0.0f, 0.0f},
-    //   .acceleration = {0.0f, 0.0f, 0.0f},
-    //   .attitude.yaw = 0.0f,
-    // };
-    // commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_DISABLE);
+    // t_ms += 100;
   }
 }
 
@@ -93,7 +143,7 @@ static controllerLee_t g_self2 = {
   .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
 
   .Kpos_P = {7.0, 7.0, 7.0},
-  .Kpos_D = {4.0, 4.0, 4.0},
+  .Kpos_D = {4.0, 4.0, 4.0}, // 6 4 works better than 7 4 and 7 5 and 8 5
 
   .KR = {0.007, 0.007, 0.008},
   .Komega = {0.00115, 0.00115, 0.002},
@@ -142,14 +192,14 @@ void controllerLee2(controllerLee_t* self, control_t *control, const setpoint_t 
   struct vec W = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z));
 
   float desiredYaw = 0;
-  if (setpoint->mode.yaw == modeVelocity) {
-    desiredYaw = radians(state->attitude.yaw + setpoint->attitudeRate.yaw * dt);
-  } else if (setpoint->mode.yaw == modeAbs) {
-    desiredYaw = radians(setpoint->attitude.yaw);
-  } else if (setpoint->mode.quat == modeAbs) {
-    struct quat setpoint_quat = mkquat(setpoint->attitudeQuaternion.x, setpoint->attitudeQuaternion.y, setpoint->attitudeQuaternion.z, setpoint->attitudeQuaternion.w);
-    desiredYaw = quat2rpy(setpoint_quat).z;
-  }
+  // if (setpoint->mode.yaw == modeVelocity) {
+  //   desiredYaw = radians(state->attitude.yaw + setpoint->attitudeRate.yaw * dt);
+  // } else if (setpoint->mode.yaw == modeAbs) {
+  //   desiredYaw = radians(setpoint->attitude.yaw);
+  // } else if (setpoint->mode.quat == modeAbs) {
+  //   struct quat setpoint_quat = mkquat(setpoint->attitudeQuaternion.x, setpoint->attitudeQuaternion.y, setpoint->attitudeQuaternion.z, setpoint->attitudeQuaternion.w);
+  //   desiredYaw = quat2rpy(setpoint_quat).z;
+  // }
   
   // Calculate f and R_d
   float f;
@@ -231,9 +281,6 @@ void controllerLee2(controllerLee_t* self, control_t *control, const setpoint_t 
   self->Kpos_I.y = M.y;
   self->Kpos_I.z = M.z;
 }
-
-#include "param.h"
-#include "log.h"
 
 PARAM_GROUP_START(ctrlLee2)
 
