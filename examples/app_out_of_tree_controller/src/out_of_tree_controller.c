@@ -50,9 +50,12 @@
 #include "param.h"
 #include "log.h"
 
-void setDesiredAttitude(float thrust_g, float roll, float pitch, float yaw) {
-  float f = thrust_g*GRAVITY_MAGNITUDE;
-  float thrust = f / powerDistributionGetMaxThrust() * UINT16_MAX;
+void p2pCB(P2PPacket* packet) {
+  float thrust, roll, pitch, yaw;
+  memcpy(&thrust, packet->data, sizeof(float));
+  memcpy(&roll, packet->data + sizeof(float), sizeof(float));
+  memcpy(&pitch, packet->data + 2*sizeof(float), sizeof(float));
+  memcpy(&yaw, packet->data + 3*sizeof(float), sizeof(float));
 
   setpoint_t setpoint;
   setpoint.mode.x = modeVelocity;
@@ -68,23 +71,10 @@ void setDesiredAttitude(float thrust_g, float roll, float pitch, float yaw) {
 }
 
 void appMain() {
-  setpoint_t current_setpoint;
-  state_t current_state;
-  
-  P2PPacket packet;
-  packet.port = 0x00;
-  packet.size = 4*sizeof(float);
-  
+  p2pRegisterCB(p2pCB);
+
   while (1) {
-    vTaskDelay(M2T(100));
-
-    commanderGetSetpoint(&current_setpoint, &current_state);
-    memcpy(packet.data, &current_setpoint.thrust, sizeof(float));
-    memcpy(packet.data + sizeof(float), &current_setpoint.attitude.roll, sizeof(float));
-    memcpy(packet.data + 2*sizeof(float), &current_setpoint.attitude.pitch, sizeof(float));
-    memcpy(packet.data + 3*sizeof(float), &current_setpoint.attitude.yaw, sizeof(float));
-
-    radiolinkSendP2PPacketBroadcast(&packet);
+    vTaskDelay(M2T(2000));
   }
 }
 
