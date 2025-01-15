@@ -46,6 +46,7 @@
 #include "commander.h"
 #include "power_distribution.h"
 #include "crtp_commander_high_level.h"
+#include "radiolink.h"
 #include "param.h"
 #include "log.h"
 
@@ -67,8 +68,23 @@ void setDesiredAttitude(float thrust_g, float roll, float pitch, float yaw) {
 }
 
 void appMain() {
+  setpoint_t current_setpoint;
+  state_t current_state;
+  
+  P2PPacket packet;
+  packet.port = 0x00;
+  packet.size = 4*sizeof(float);
+  
   while (1) {
-    vTaskDelay(M2T(2000));
+    vTaskDelay(M2T(100));
+
+    commanderGetSetpoint(&current_setpoint, &current_state);
+    memcpy(packet.data, &current_setpoint.thrust, sizeof(float));
+    memcpy(packet.data + sizeof(float), &current_setpoint.attitude.roll, sizeof(float));
+    memcpy(packet.data + 2*sizeof(float), &current_setpoint.attitude.pitch, sizeof(float));
+    memcpy(packet.data + 3*sizeof(float), &current_setpoint.attitude.yaw, sizeof(float));
+
+    radiolinkSendP2PPacketBroadcast(&packet);
   }
 }
 
