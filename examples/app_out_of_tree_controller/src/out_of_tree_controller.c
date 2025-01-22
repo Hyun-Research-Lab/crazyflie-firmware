@@ -50,12 +50,15 @@
 #include "param.h"
 #include "log.h"
 
+static struct vec leader_position = {0.0f, 0.0f, 0.0f};
+
 void p2pCB(P2PPacket* packet) {
   float thrust, roll, pitch, yaw;
   memcpy(&thrust, packet->data, sizeof(float));
   memcpy(&roll, packet->data + sizeof(float), sizeof(float));
   memcpy(&pitch, packet->data + 2*sizeof(float), sizeof(float));
   memcpy(&yaw, packet->data + 3*sizeof(float), sizeof(float));
+  memcpy(&leader_position, packet->data + 4*sizeof(float), 3*sizeof(float));
 
   setpoint_t setpoint;
   setpoint.mode.x = modeVelocity;
