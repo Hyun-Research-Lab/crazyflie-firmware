@@ -50,16 +50,86 @@
 #include "param.h"
 #include "log.h"
 
-static struct vec leader_position = {0.0f, 0.0f, 0.0f};
+static inline struct mat33 vouter(struct vec a, struct vec b) {
+  struct mat33 out;
+  out.m[0][0] = a.x * b.x;
+  out.m[0][1] = a.x * b.y;
+  out.m[0][2] = a.x * b.z;
+  out.m[1][0] = a.y * b.x;
+  out.m[1][1] = a.y * b.y;
+  out.m[1][2] = a.y * b.z;
+  out.m[2][0] = a.z * b.x;
+  out.m[2][1] = a.z * b.y;
+  out.m[2][2] = a.z * b.z;
+  return out;
+}
+
+static inline struct vec rotmat2rpy(struct mat33 R) {
+  struct vec rpy;
+  rpy.x = -asinf(R.m[2][0]);
+  rpy.y = atan2f(R.m[2][1]/acosf(rpy.x), R.m[2][2]/acosf(rpy.x));
+  rpy.z = atan2f(R.m[1][0]/acosf(rpy.x), R.m[0][0]/acosf(rpy.x));
+  return rpy;
+}
 
 void p2pCB(P2PPacket* packet) {
-  float thrust, roll, pitch, yaw;
-  memcpy(&thrust, packet->data, sizeof(float));
-  memcpy(&roll, packet->data + sizeof(float), sizeof(float));
-  memcpy(&pitch, packet->data + 2*sizeof(float), sizeof(float));
-  memcpy(&yaw, packet->data + 3*sizeof(float), sizeof(float));
-  memcpy(&leader_position, packet->data + 4*sizeof(float), 3*sizeof(float));
+  float thrust_l, roll_l, pitch_l, yaw_l;
+  struct vec x_l;
+  struct vec v_l;
 
+  // Get leader information
+  memcpy(&thrust_l, packet->data, sizeof(float));
+  memcpy(&roll_l, packet->data + sizeof(float), sizeof(float));
+  memcpy(&pitch_l, packet->data + 2*sizeof(float), sizeof(float));
+  memcpy(&yaw_l, packet->data + 3*sizeof(float), sizeof(float));
+  memcpy(&x_l.x, packet->data + 4*sizeof(float), sizeof(float));
+  memcpy(&x_l.y, packet->data + 5*sizeof(float), sizeof(float));
+  memcpy(&x_l.z, packet->data + 6*sizeof(float), sizeof(float));
+  memcpy(&v_l.x, packet->data + 7*sizeof(float), sizeof(float));
+  memcpy(&v_l.y, packet->data + 8*sizeof(float), sizeof(float));
+  memcpy(&v_l.z, packet->data + 9*sizeof(float), sizeof(float));
+
+  struct vec rpy_d_l = {roll_l, pitch_l, yaw_l};
+  struct mat33 R_d_l = quat2rotmat(rpy2quat(rpy_d_l));
+  struct vec F_d_l = vscl(thrust_l, mcolumn(R_d_l, 2));
+
+  // Get follower information
+  setpoint_t current_setpoint;
+  state_t current_state;
+  commanderGetSetpoint(&current_setpoint, &current_state);
+  struct vec x = mkvec(current_state.position.x, current_state.position.y, current_state.position.z);
+  struct vec v = mkvec(current_state.velocity.x, current_state.velocity.y, current_state.velocity.z);
+  struct quat q = mkquat(current_state.attitudeQuaternion.x, current_state.attitudeQuaternion.y, current_state.attitudeQuaternion.z, current_state.attitudeQuaternion.w);
+  struct mat33 R = quat2rotmat(q);
+
+  // Where the magic happens
+  struct vec re = vsub(x, x_l);
+  struct vec re_dot = vsub(v, v_l);
+
+  struct vec re_d = vscl(vmag(re), vbasis(0));
+  struct vec re_d_dot = vzero();
+  struct vec re_d_ddot = vzero();
+
+  struct vec ex = vsub(re, re_d);
+  struct vec ev = vsub(re_dot, re_d_dot);
+
+  struct mat33 P = msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
+  struct vec u = mvmul(P, vadd3(vscl(-5.0f, ex), vscl(-5.0f, ev), re_d_ddot));
+
+  struct vec F_d = vadd3(F_d_l, vscl(CF_MASS, u), vscl(CF_MASS*GRAVITY_MAGNITUDE, vbasis(2)));
+
+  // Send F_d to the controller
+  float thrust = vdot(F_d, mvmul(R, vbasis(2)));
+
+  struct vec b1_d = vbasis(0);
+  struct vec b3_d = vnormalize(F_d);
+  struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
+  struct mat33 R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
+  struct vec rpy_d = rotmat2rpy(R_d);
+  float roll = rpy_d.x;
+  float pitch = rpy_d.y;
+  float yaw = rpy_d.z;
+  
   setpoint_t setpoint;
   setpoint.mode.x = modeVelocity;
   setpoint.mode.y = modeVelocity;
