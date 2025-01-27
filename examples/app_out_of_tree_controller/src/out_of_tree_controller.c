@@ -53,6 +53,36 @@
 
 #define FILTER_SIZE 50
 
+// #define LEADER
+#define FOLLOWER
+
+#ifdef LEADER
+void appMain() {
+  setpoint_t current_setpoint;
+  state_t current_state;
+  
+  P2PPacket packet;
+  packet.port = 0x00;
+  packet.size = 7*sizeof(float);
+  
+  while (1) {
+    vTaskDelay(M2T(100));
+
+    commanderGetSetpoint(&current_setpoint, &current_state);
+    memcpy(packet.data, &current_setpoint.thrust, sizeof(float));
+    memcpy(packet.data + sizeof(float), &current_setpoint.attitude.roll, sizeof(float));
+    memcpy(packet.data + 2*sizeof(float), &current_setpoint.attitude.pitch, sizeof(float));
+    memcpy(packet.data + 3*sizeof(float), &current_setpoint.attitude.yaw, sizeof(float));
+    memcpy(packet.data + 4*sizeof(float), &current_state.position.x, sizeof(float));
+    memcpy(packet.data + 5*sizeof(float), &current_state.position.y, sizeof(float));
+    memcpy(packet.data + 6*sizeof(float), &current_state.position.z, sizeof(float));
+
+    radiolinkSendP2PPacketBroadcast(&packet);
+  }
+}
+#endif
+
+#ifdef FOLLOWER
 static inline struct mat33 vouter(struct vec a, struct vec b) {
   struct mat33 out;
   out.m[0][0] = a.x * b.x;
@@ -153,6 +183,7 @@ void appMain() {
     vTaskDelay(M2T(2000));
   }
 }
+#endif
 
 typedef struct controllerLee2_s {
     // Quadrotor parameters
