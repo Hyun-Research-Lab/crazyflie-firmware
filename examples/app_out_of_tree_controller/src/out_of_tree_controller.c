@@ -56,135 +56,6 @@
 // #define LEADER
 #define FOLLOWER
 
-#ifdef LEADER
-void appMain() {
-  setpoint_t current_setpoint;
-  state_t current_state;
-  
-  P2PPacket packet;
-  packet.port = 0x00;
-  packet.size = 7*sizeof(float);
-  
-  while (1) {
-    vTaskDelay(M2T(100));
-
-    commanderGetSetpoint(&current_setpoint, &current_state);
-    memcpy(packet.data, &current_setpoint.thrust, sizeof(float));
-    memcpy(packet.data + sizeof(float), &current_setpoint.attitude.roll, sizeof(float));
-    memcpy(packet.data + 2*sizeof(float), &current_setpoint.attitude.pitch, sizeof(float));
-    memcpy(packet.data + 3*sizeof(float), &current_setpoint.attitude.yaw, sizeof(float));
-    memcpy(packet.data + 4*sizeof(float), &current_state.position.x, sizeof(float));
-    memcpy(packet.data + 5*sizeof(float), &current_state.position.y, sizeof(float));
-    memcpy(packet.data + 6*sizeof(float), &current_state.position.z, sizeof(float));
-
-    radiolinkSendP2PPacketBroadcast(&packet);
-  }
-}
-#endif
-
-#ifdef FOLLOWER
-static inline struct mat33 vouter(struct vec a, struct vec b) {
-  struct mat33 out;
-  out.m[0][0] = a.x * b.x;
-  out.m[0][1] = a.x * b.y;
-  out.m[0][2] = a.x * b.z;
-  out.m[1][0] = a.y * b.x;
-  out.m[1][1] = a.y * b.y;
-  out.m[1][2] = a.y * b.z;
-  out.m[2][0] = a.z * b.x;
-  out.m[2][1] = a.z * b.y;
-  out.m[2][2] = a.z * b.z;
-  return out;
-}
-
-static inline struct vec rotmat2rpy(struct mat33 R) {
-  struct vec rpy;
-  rpy.x = -asinf(R.m[2][0]);
-  rpy.y = atan2f(R.m[2][1]/acosf(rpy.x), R.m[2][2]/acosf(rpy.x));
-  rpy.z = atan2f(R.m[1][0]/acosf(rpy.x), R.m[0][0]/acosf(rpy.x));
-  return rpy;
-}
-
-void p2pCB(P2PPacket* packet) {
-  float thrust_l, roll_l, pitch_l, yaw_l;
-  struct vec x_l;
-  struct vec v_l;
-
-  // Get leader information
-  memcpy(&thrust_l, packet->data, sizeof(float));
-  memcpy(&roll_l, packet->data + sizeof(float), sizeof(float));
-  memcpy(&pitch_l, packet->data + 2*sizeof(float), sizeof(float));
-  memcpy(&yaw_l, packet->data + 3*sizeof(float), sizeof(float));
-  memcpy(&x_l.x, packet->data + 4*sizeof(float), sizeof(float));
-  memcpy(&x_l.y, packet->data + 5*sizeof(float), sizeof(float));
-  memcpy(&x_l.z, packet->data + 6*sizeof(float), sizeof(float));
-  memcpy(&v_l.x, packet->data + 7*sizeof(float), sizeof(float));
-  memcpy(&v_l.y, packet->data + 8*sizeof(float), sizeof(float));
-  memcpy(&v_l.z, packet->data + 9*sizeof(float), sizeof(float));
-
-  struct vec rpy_d_l = {roll_l, pitch_l, yaw_l};
-  struct mat33 R_d_l = quat2rotmat(rpy2quat(rpy_d_l));
-  struct vec F_d_l = vscl(thrust_l, mcolumn(R_d_l, 2));
-
-  // Get follower information
-  setpoint_t current_setpoint;
-  state_t current_state;
-  commanderGetSetpoint(&current_setpoint, &current_state);
-  struct vec x = mkvec(current_state.position.x, current_state.position.y, current_state.position.z);
-  struct vec v = mkvec(current_state.velocity.x, current_state.velocity.y, current_state.velocity.z);
-  struct quat q = mkquat(current_state.attitudeQuaternion.x, current_state.attitudeQuaternion.y, current_state.attitudeQuaternion.z, current_state.attitudeQuaternion.w);
-  struct mat33 R = quat2rotmat(q);
-
-  // Where the magic happens
-  struct vec re = vsub(x, x_l);
-  struct vec re_dot = vsub(v, v_l);
-
-  struct vec re_d = vscl(vmag(re), vbasis(0));
-  struct vec re_d_dot = vzero();
-  struct vec re_d_ddot = vzero();
-
-  struct vec ex = vsub(re, re_d);
-  struct vec ev = vsub(re_dot, re_d_dot);
-
-  struct mat33 P = msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
-  struct vec u = mvmul(P, vadd3(vscl(-5.0f, ex), vscl(-5.0f, ev), re_d_ddot));
-
-  struct vec F_d = vadd3(F_d_l, vscl(CF_MASS, u), vscl(CF_MASS*GRAVITY_MAGNITUDE, vbasis(2)));
-
-  // Send F_d to the controller
-  float thrust = vdot(F_d, mvmul(R, vbasis(2)));
-
-  struct vec b1_d = vbasis(0);
-  struct vec b3_d = vnormalize(F_d);
-  struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
-  struct mat33 R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
-  struct vec rpy_d = rotmat2rpy(R_d);
-  float roll = rpy_d.x;
-  float pitch = rpy_d.y;
-  float yaw = rpy_d.z;
-  
-  setpoint_t setpoint;
-  setpoint.mode.x = modeVelocity;
-  setpoint.mode.y = modeVelocity;
-  setpoint.mode.z = modeVelocity;
-
-  setpoint.thrust = thrust;
-  setpoint.attitude.roll = roll;
-  setpoint.attitude.pitch = pitch;
-  setpoint.attitude.yaw = yaw;
-
-  commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
-}
-
-void appMain() {
-  p2pRegisterCB(p2pCB);
-
-  while (1) {
-    vTaskDelay(M2T(2000));
-  }
-}
-#endif
-
 typedef struct controllerLee2_s {
     // Quadrotor parameters
     float m;
@@ -218,6 +89,14 @@ typedef struct controllerLee2_s {
 
     struct vec W_d;
     struct vec W_d_dot;
+
+#if defined(LEADER) || defined(FOLLOWER)
+    // For leader-follower
+    struct vec F_d;
+    struct vec x;
+    struct vec v;
+    struct mat33 R;
+#endif
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
@@ -231,6 +110,123 @@ static controllerLee2_t g_self2 = {
   // .kI = 0.0006,
   // .c2 = 0.8,
 };
+
+#ifdef LEADER
+void appMain() {
+  controllerLee2_t* self = &g_self2;
+  
+  P2PPacket packet;
+  packet.port = 0x00;
+  packet.size = 7*sizeof(float);
+  
+  while (1) {
+    vTaskDelay(M2T(100));
+
+    memcpy(packet.data,                   &self->F_d.x, sizeof(float));
+    memcpy(packet.data + sizeof(float),   &self->F_d.y, sizeof(float));
+    memcpy(packet.data + 2*sizeof(float), &self->F_d.z, sizeof(float));
+    memcpy(packet.data + 3*sizeof(float), &self->x.x, sizeof(float));
+    memcpy(packet.data + 4*sizeof(float), &self->x.y, sizeof(float));
+    memcpy(packet.data + 5*sizeof(float), &self->x.z, sizeof(float));
+    memcpy(packet.data + 6*sizeof(float), &self->v.x, sizeof(float));
+    memcpy(packet.data + 7*sizeof(float), &self->v.y, sizeof(float));
+    memcpy(packet.data + 8*sizeof(float), &self->v.z, sizeof(float));
+
+    radiolinkSendP2PPacketBroadcast(&packet);
+  }
+}
+#endif
+
+#ifdef FOLLOWER
+static inline struct mat33 vouter(struct vec a, struct vec b) {
+  struct mat33 out;
+  out.m[0][0] = a.x * b.x;
+  out.m[0][1] = a.x * b.y;
+  out.m[0][2] = a.x * b.z;
+  out.m[1][0] = a.y * b.x;
+  out.m[1][1] = a.y * b.y;
+  out.m[1][2] = a.y * b.z;
+  out.m[2][0] = a.z * b.x;
+  out.m[2][1] = a.z * b.y;
+  out.m[2][2] = a.z * b.z;
+  return out;
+}
+
+static inline struct vec rotmat2rpy(struct mat33 R) {
+  struct vec rpy;
+  rpy.x = -asinf(R.m[2][0]);
+  rpy.y = atan2f(R.m[2][1]/acosf(rpy.x), R.m[2][2]/acosf(rpy.x));
+  rpy.z = atan2f(R.m[1][0]/acosf(rpy.x), R.m[0][0]/acosf(rpy.x));
+  return rpy;
+}
+
+void p2pCB(P2PPacket* packet) {
+  controllerLee2_t* self = &g_self2;
+  
+  struct vec F_d_l;
+  struct vec x_l;
+  struct vec v_l;
+
+  // Get leader information
+  memcpy(&F_d_l.x, packet->data, sizeof(float));
+  memcpy(&F_d_l.y, packet->data + sizeof(float), sizeof(float));
+  memcpy(&F_d_l.z, packet->data + 2*sizeof(float), sizeof(float));
+  memcpy(&x_l.x,   packet->data + 3*sizeof(float), sizeof(float));
+  memcpy(&x_l.y,   packet->data + 4*sizeof(float), sizeof(float));
+  memcpy(&x_l.z,   packet->data + 5*sizeof(float), sizeof(float));
+  memcpy(&v_l.x,   packet->data + 6*sizeof(float), sizeof(float));
+  memcpy(&v_l.y,   packet->data + 7*sizeof(float), sizeof(float));
+  memcpy(&v_l.z,   packet->data + 8*sizeof(float), sizeof(float));
+
+  // Where the magic happens
+  struct vec re = vsub(self->x, x_l);
+  struct vec re_dot = vsub(self->v, v_l);
+
+  struct vec re_d = vscl(vmag(re), vbasis(0));
+  struct vec re_d_dot = vzero();
+  struct vec re_d_ddot = vzero();
+
+  struct vec ex = vsub(re, re_d);
+  struct vec ev = vsub(re_dot, re_d_dot);
+
+  struct mat33 P = msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
+  struct vec u = mvmul(P, vadd3(vscl(-5.0f, ex), vscl(-5.0f, ev), re_d_ddot));
+
+  struct vec F_d = vadd3(F_d_l, vscl(CF_MASS, u), vscl(CF_MASS*GRAVITY_MAGNITUDE, vbasis(2)));
+
+  // Send F_d to the controller
+  float thrust = vdot(F_d, mvmul(self->R, vbasis(2)));
+
+  struct vec b1_d = vbasis(0);
+  struct vec b3_d = vnormalize(F_d);
+  struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
+  struct mat33 R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
+  struct vec rpy_d = rotmat2rpy(R_d);
+  float roll = rpy_d.x;
+  float pitch = rpy_d.y;
+  float yaw = rpy_d.z;
+  
+  setpoint_t setpoint;
+  setpoint.mode.x = modeVelocity;
+  setpoint.mode.y = modeVelocity;
+  setpoint.mode.z = modeVelocity;
+
+  setpoint.thrust = thrust;
+  setpoint.attitude.roll = roll;
+  setpoint.attitude.pitch = pitch;
+  setpoint.attitude.yaw = yaw;
+
+  commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
+}
+
+void appMain() {
+  p2pRegisterCB(p2pCB);
+
+  while (1) {
+    vTaskDelay(M2T(2000));
+  }
+}
+#endif
 
 static inline struct mat33 mlog(struct mat33 R) {
 	float acosinput = (R.m[0][0] + R.m[1][1] + R.m[2][2] - 1.0f) / 2.0f;
@@ -317,6 +313,13 @@ void controllerOutOfTreeInit() {
   self->W_d_dot = vzero();
 
   resetFilterBuffers(self);
+
+#if defined(LEADER) || defined(FOLLOWER)
+  self->F_d = vzero();
+  self->x = vzero();
+  self->v = vzero();
+  self->R = mzero();
+#endif
 }
 
 bool controllerOutOfTreeTest() {
@@ -349,6 +352,12 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   //   struct quat setpoint_quat = mkquat(setpoint->attitudeQuaternion.x, setpoint->attitudeQuaternion.y, setpoint->attitudeQuaternion.z, setpoint->attitudeQuaternion.w);
   //   desiredYaw = quat2rpy(setpoint_quat).z;
   // }
+
+#if defined(LEADER) || defined(FOLLOWER)
+  self->x = x;
+  self->v = v;
+  self->R = R;
+#endif
   
   // Calculate f and R_d
   struct mat33 R_d;
@@ -377,6 +386,10 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
     R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
 
+#if defined(LEADER) || defined(FOLLOWER)
+    self->F_d = F_d;
+#endif
+
   } else {
     if (setpoint->mode.z == modeDisable && setpoint->thrust < 1000) {
       control->controlMode = controlModeForceTorque;
@@ -395,6 +408,10 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       radians(setpoint->attitude.roll),
       -radians(setpoint->attitude.pitch), // This is in the legacy coordinate system where pitch is inverted
       desiredYaw)));
+
+#if defined(LEADER) || defined(FOLLOWER)
+    self->F_d = vscl(self->f, mcolumn(R_d, 2));
+#endif
   }
 
   // Calculate M
