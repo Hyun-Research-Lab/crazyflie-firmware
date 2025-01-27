@@ -100,7 +100,11 @@ typedef struct controllerLee2_s {
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
+#if defined(LEADER) || defined(FOLLOWER)
+  .m = 0.035, // kg
+#else
   .m = 0.033, // kg
+#endif
   .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
 
   .kx = 7.0,
