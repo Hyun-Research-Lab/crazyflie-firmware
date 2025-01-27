@@ -28,6 +28,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include <math.h>
 
 #include "app.h"
@@ -49,22 +50,7 @@
 #include "param.h"
 #include "log.h"
 
-void setDesiredAttitude(float thrust_g, float roll, float pitch, float yaw) {
-  float f = thrust_g*GRAVITY_MAGNITUDE;
-  float thrust = f / powerDistributionGetMaxThrust() * UINT16_MAX;
-
-  setpoint_t setpoint;
-  setpoint.mode.x = modeVelocity;
-  setpoint.mode.y = modeVelocity;
-  setpoint.mode.z = modeVelocity;
-
-  setpoint.thrust = thrust;
-  setpoint.attitude.roll = roll;
-  setpoint.attitude.pitch = pitch;
-  setpoint.attitude.yaw = yaw;
-
-  commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
-}
+#define FILTER_SIZE 50
 
 void appMain() {
   while (1) {
@@ -72,11 +58,58 @@ void appMain() {
   }
 }
 
+typedef struct controllerLee2_s {
+    // Quadrotor parameters
+    float m;
+    struct vec J; // Inertia matrix (diagonal matrix); kg m^2
+
+    // Gains
+    float kx;
+    float kv;
+    float kR;
+    float kW;
+    // float kI;
+    // float c2;
+
+    // Errors
+    struct vec ex;
+    struct vec ev;
+    struct vec eR;
+    struct vec eW;
+    // struct vec eI;
+
+    // Wrench
+    float f;
+    struct vec M;
+
+    // Previous values
+    struct mat33 R_d_prev;
+    struct vec W_d_prev;
+
+    struct vec W_d_raw[FILTER_SIZE];
+    struct vec W_d_dot_raw[FILTER_SIZE];
+
+    struct vec W_d;
+    struct vec W_d_dot;
+} controllerLee2_t;
+
+static controllerLee2_t g_self2 = {
+  .m = 0.033, // kg
+  .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
+
+  .kx = 7.0,
+  .kv = 4.0, // 6 4 works better than 7 4 and 7 5 and 8 5
+  .kR = 0.008,
+  .kW = 0.002,
+  // .kI = 0.0006,
+  // .c2 = 0.8,
+};
+
 static inline struct mat33 mlog(struct mat33 R) {
-	float acosinput = (R.m[0][0] + R.m[1][1] + R.m[2][2] - 1) / 2.0f;
-	if (acosinput >= 1) {
+	float acosinput = (R.m[0][0] + R.m[1][1] + R.m[2][2] - 1.0f) / 2.0f;
+	if (acosinput >= 1.0f) {
 		return mzero();
-	} else if (acosinput <= -1) {
+	} else if (acosinput <= -1.0f) {
 		struct vec omg;
 		if (!(fabsf(1.0f + R.m[2][2]) < 1e-6f)) {
 			omg = vdiv(mkvec(R.m[0][2], R.m[1][2], 1.0f + R.m[2][2]), sqrtf(2.0f * (1.0f + R.m[2][2])));
@@ -96,41 +129,47 @@ static inline struct vec mvee(struct mat33 R) {
 	return mkvec(R.m[2][1], R.m[0][2], R.m[1][0]);
 }
 
-typedef struct controllerLee2_s {
-    // Quadrotor parameters
-    float m;
-    struct vec J; // Inertia matrix (diagonal matrix); kg m^2
+// static inline int compare(const void* a, const void* b) {
+//    return (*(int*)a - *(int*)b);
+// }
 
-    // Gains
-    float kx;
-    float kv;
-    float kR;
-    float kW;
+static inline struct vec filter(struct vec* arr, int size) {
+  // float x[size];
+  // float y[size];
+  // float z[size];
+  // for (int i = 0; i < size; i++) {
+  //   x[i] = arr[i].x;
+  //   y[i] = arr[i].y;
+  //   z[i] = arr[i].z;
+  // }
 
-    // Errors
-    struct vec ex;
-    struct vec ev;
-    struct vec eR;
-    struct vec eW;
+  // qsort(x, size, sizeof(float), compare);
+  // qsort(y, size, sizeof(float), compare);
+  // qsort(z, size, sizeof(float), compare);
 
-    // Wrench
-    float f;
-    struct vec M;
+  // return mkvec(x[size/2], y[size/2], z[size/2]);
 
-    // Previous values
-    struct mat33 R_d_prev;
-    struct vec W_d_prev;
-} controllerLee2_t;
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+  for (int i = 0; i < size; i++) {
+    x += arr[i].x;
+    y += arr[i].y;
+    z += arr[i].z;
+  }
+  x /= size;
+  y /= size;
+  z /= size;
 
-static controllerLee2_t g_self2 = {
-  .m = 0.033, // kg
-  .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
+  return mkvec(x, y, z);
+}
 
-  .kx = 7.0,
-  .kv = 4.0, // 6 4 works better than 7 4 and 7 5 and 8 5
-  .kR = 0.007,
-  .kW = 0.00115,
-};
+static inline void resetFilterBuffers(controllerLee2_t* self) {
+  for (int i = 0; i < FILTER_SIZE; i++) {
+    self->W_d_raw[i] = vzero();
+    self->W_d_dot_raw[i] = vzero();
+  }
+}
 
 void controllerOutOfTreeInit() {
   controllerLee2_t* self = &g_self2;
@@ -138,13 +177,19 @@ void controllerOutOfTreeInit() {
   self->f = 0;
   self->M = vzero();
   
-  self->R_d_prev = mcolumns(vrepeat(NAN), vrepeat(NAN), vrepeat(NAN));
-  self->W_d_prev = vrepeat(NAN);
-
   self->ex = vzero();
   self->ev = vzero();
   self->eR = vzero();
   self->eW = vzero();
+  // self->eI = vzero();
+
+  self->R_d_prev = mcolumns(vrepeat(NAN), vrepeat(NAN), vrepeat(NAN));
+  self->W_d_prev = vrepeat(NAN);
+
+  self->W_d = vzero();
+  self->W_d_dot = vzero();
+
+  resetFilterBuffers(self);
 }
 
 bool controllerOutOfTreeTest() {
@@ -195,6 +240,11 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       a_d,
       vscl(GRAVITY_MAGNITUDE, vbasis(2))));
     self->f = vdot(F_d, mvmul(R, vbasis(2)));
+    
+    if (self->f < 0.01f) {
+      // self->eI = vzero();
+      resetFilterBuffers(self);
+    }
 
     struct vec b3_d = vnormalize(F_d);
     struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
@@ -207,6 +257,8 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       control->torque[0] = 0;
       control->torque[1] = 0;
       control->torque[2] = 0;
+      // self->eI = vzero();
+      resetFilterBuffers(self);
       return;
     }
     const float max_thrust = powerDistributionGetMaxThrust(); // N
@@ -220,24 +272,42 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 
   // Calculate M
   if (vneq(mcolumn(self->R_d_prev, 0), vrepeat(NAN)) && vneq(mcolumn(self->R_d_prev, 1), vrepeat(NAN)) && vneq(mcolumn(self->R_d_prev, 2), vrepeat(NAN))) {
-    struct vec W_d = mvee(mscl(1.0f/dt, mlog(mmul(mtranspose(self->R_d_prev), R_d))));
+    // Update W_d_raw buffer
+    for (int i = 0; i < FILTER_SIZE - 1; i++) {
+      self->W_d_raw[i] = self->W_d_raw[i + 1];
+    }
+    self->W_d_raw[FILTER_SIZE - 1] = vdiv(mvee(mlog(mmul(mtranspose(self->R_d_prev), R_d))), dt);
+    self->W_d = filter(self->W_d_raw, FILTER_SIZE);
+
     if (vneq(self->W_d_prev, vrepeat(NAN))) {
-      struct vec W_d_dot = vdiv(vsub(W_d, self->W_d_prev), dt);
+      // Update W_d_dot_raw buffer
+      for (int i = 0; i < FILTER_SIZE - 1; i++) {
+        self->W_d_dot_raw[i] = self->W_d_dot_raw[i + 1];
+      }
+      self->W_d_dot_raw[FILTER_SIZE - 1] = vdiv(vsub(self->W_d, self->W_d_prev), dt);
+      self->W_d_dot = filter(self->W_d_dot_raw, FILTER_SIZE);
 
       self->eR = vscl(0.5f, mvee(msub(
         mmul(mtranspose(R_d), R),
         mmul(mtranspose(R), R_d))));
-      self->eW = vsub(W, mvmul(mtranspose(R), mvmul(R_d, W_d)));
+      self->eW = vsub(W, mvmul(mtranspose(R), mvmul(R_d, self->W_d)));
+      // self->eI = vadd(self->eI, vscl(dt, vadd(self->eW, vscl(self->c2, self->eR))));
 
       self->M = vadd4(
         vneg(vscl(self->kR, self->eR)),
         vneg(vscl(self->kW, self->eW)),
         vcross(W, veltmul(self->J, W)),
         vneg(veltmul(self->J, vsub(
-          vcross(W, mvmul(mtranspose(R), mvmul(R_d, W_d))),
-          mvmul(mtranspose(R), mvmul(R_d, W_d_dot))))));
+          vcross(W, mvmul(mtranspose(R), mvmul(R_d, self->W_d))),
+          mvmul(mtranspose(R), mvmul(R_d, self->W_d_dot))))));
+      // self->M = vadd(vadd4(
+      //   vneg(vscl(self->kR, self->eR)),
+      //   vneg(vscl(self->kW, self->eW)),
+      //   vneg(vscl(self->kI, self->eI)),
+      //   vcross(mvmul(mtranspose(R), mvmul(R_d, W_d)), veltmul(self->J, mvmul(mtranspose(R), mvmul(R_d, W_d))))),
+      //   veltmul(self->J, mvmul(mtranspose(R), mvmul(R_d, W_d_dot))));
     }
-    self->W_d_prev = W_d;
+    self->W_d_prev = self->W_d;
   }
   self->R_d_prev = R_d;
 
@@ -254,6 +324,8 @@ PARAM_ADD(PARAM_FLOAT, kx, &g_self2.kx)
 PARAM_ADD(PARAM_FLOAT, kv, &g_self2.kv)
 PARAM_ADD(PARAM_FLOAT, kR, &g_self2.kR)
 PARAM_ADD(PARAM_FLOAT, kW, &g_self2.kW)
+// PARAM_ADD(PARAM_FLOAT, kI, &g_self2.kI)
+// PARAM_ADD(PARAM_FLOAT, c2, &g_self2.c2)
 
 PARAM_GROUP_STOP(ctrlLee2)
 
@@ -281,5 +353,17 @@ LOG_ADD(LOG_FLOAT, eR3, &g_self2.eR.z)
 LOG_ADD(LOG_FLOAT, eW1, &g_self2.eW.x)
 LOG_ADD(LOG_FLOAT, eW2, &g_self2.eW.y)
 LOG_ADD(LOG_FLOAT, eW3, &g_self2.eW.z)
+
+// LOG_ADD(LOG_FLOAT, eI1, &g_self2.eI.x)
+// LOG_ADD(LOG_FLOAT, eI2, &g_self2.eI.y)
+// LOG_ADD(LOG_FLOAT, eI3, &g_self2.eI.z)
+
+LOG_ADD(LOG_FLOAT, W_d1, &g_self2.W_d.x)
+LOG_ADD(LOG_FLOAT, W_d2, &g_self2.W_d.y)
+LOG_ADD(LOG_FLOAT, W_d3, &g_self2.W_d.z)
+
+LOG_ADD(LOG_FLOAT, W_d_dot1, &g_self2.W_d_dot.x)
+LOG_ADD(LOG_FLOAT, W_d_dot2, &g_self2.W_d_dot.y)
+LOG_ADD(LOG_FLOAT, W_d_dot3, &g_self2.W_d_dot.z)
 
 LOG_GROUP_STOP(ctrlLee2)
