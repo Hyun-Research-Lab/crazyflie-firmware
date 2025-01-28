@@ -96,15 +96,12 @@ typedef struct controllerLee2_s {
   struct vec x;
   struct vec v;
   struct mat33 R;
-
-  uint8_t commEn;
 #endif
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
 #if defined(LEADER) || defined(FOLLOWER)
   .m = 0.035, // kg
-  .commEn = 0,
 #else
   .m = 0.033, // kg
 #endif
@@ -129,19 +126,17 @@ void appMain() {
   while (1) {
     vTaskDelay(M2T(100));
 
-    if (self->commEn) {
-      memcpy(packet.data,                   &self->F_d.x, sizeof(float));
-      memcpy(packet.data + sizeof(float),   &self->F_d.y, sizeof(float));
-      memcpy(packet.data + 2*sizeof(float), &self->F_d.z, sizeof(float));
-      memcpy(packet.data + 3*sizeof(float), &self->x.x, sizeof(float));
-      memcpy(packet.data + 4*sizeof(float), &self->x.y, sizeof(float));
-      memcpy(packet.data + 5*sizeof(float), &self->x.z, sizeof(float));
-      memcpy(packet.data + 6*sizeof(float), &self->v.x, sizeof(float));
-      memcpy(packet.data + 7*sizeof(float), &self->v.y, sizeof(float));
-      memcpy(packet.data + 8*sizeof(float), &self->v.z, sizeof(float));
+    memcpy(packet.data,                   &self->F_d.x, sizeof(float));
+    memcpy(packet.data + sizeof(float),   &self->F_d.y, sizeof(float));
+    memcpy(packet.data + 2*sizeof(float), &self->F_d.z, sizeof(float));
+    memcpy(packet.data + 3*sizeof(float), &self->x.x, sizeof(float));
+    memcpy(packet.data + 4*sizeof(float), &self->x.y, sizeof(float));
+    memcpy(packet.data + 5*sizeof(float), &self->x.z, sizeof(float));
+    memcpy(packet.data + 6*sizeof(float), &self->v.x, sizeof(float));
+    memcpy(packet.data + 7*sizeof(float), &self->v.y, sizeof(float));
+    memcpy(packet.data + 8*sizeof(float), &self->v.z, sizeof(float));
 
-      radiolinkSendP2PPacketBroadcast(&packet);
-    }
+    radiolinkSendP2PPacketBroadcast(&packet);
   }
 }
 #endif
@@ -476,8 +471,6 @@ PARAM_ADD(PARAM_FLOAT, kR, &g_self2.kR)
 PARAM_ADD(PARAM_FLOAT, kW, &g_self2.kW)
 // PARAM_ADD(PARAM_FLOAT, kI, &g_self2.kI)
 // PARAM_ADD(PARAM_FLOAT, c2, &g_self2.c2)
-
-PARAM_ADD(PARAM_UINT8, commEn, &g_self2.commEn)
 
 PARAM_GROUP_STOP(ctrlLee2)
 
