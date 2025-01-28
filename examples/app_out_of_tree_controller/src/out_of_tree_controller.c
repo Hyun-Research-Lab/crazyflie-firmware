@@ -57,45 +57,45 @@
 #define FOLLOWER
 
 typedef struct controllerLee2_s {
-    // Quadrotor parameters
-    float m;
-    struct vec J; // Inertia matrix (diagonal matrix); kg m^2
+  // Quadrotor parameters
+  float m;
+  struct vec J; // Inertia matrix (diagonal matrix); kg m^2
 
-    // Gains
-    float kx;
-    float kv;
-    float kR;
-    float kW;
-    // float kI;
-    // float c2;
+  // Gains
+  float kx;
+  float kv;
+  float kR;
+  float kW;
+  // float kI;
+  // float c2;
 
-    // Errors
-    struct vec ex;
-    struct vec ev;
-    struct vec eR;
-    struct vec eW;
-    // struct vec eI;
+  // Errors
+  struct vec ex;
+  struct vec ev;
+  struct vec eR;
+  struct vec eW;
+  // struct vec eI;
 
-    // Wrench
-    float f;
-    struct vec M;
+  // Wrench
+  float f;
+  struct vec M;
 
-    // Previous values
-    struct mat33 R_d_prev;
-    struct vec W_d_prev;
+  // Previous values
+  struct mat33 R_d_prev;
+  struct vec W_d_prev;
 
-    struct vec W_d_raw[FILTER_SIZE];
-    struct vec W_d_dot_raw[FILTER_SIZE];
+  struct vec W_d_raw[FILTER_SIZE];
+  struct vec W_d_dot_raw[FILTER_SIZE];
 
-    struct vec W_d;
-    struct vec W_d_dot;
+  struct vec W_d;
+  struct vec W_d_dot;
 
 #if defined(LEADER) || defined(FOLLOWER)
-    // For leader-follower
-    struct vec F_d;
-    struct vec x;
-    struct vec v;
-    struct mat33 R;
+  // For leader-follower
+  struct vec F_d;
+  struct vec x;
+  struct vec v;
+  struct mat33 R;
 #endif
 } controllerLee2_t;
 
@@ -156,14 +156,6 @@ static inline struct mat33 vouter(struct vec a, struct vec b) {
   return out;
 }
 
-static inline struct vec rotmat2rpy(struct mat33 R) {
-  struct vec rpy;
-  rpy.x = -asinf(R.m[2][0]);
-  rpy.y = atan2f(R.m[2][1]/acosf(rpy.x), R.m[2][2]/acosf(rpy.x));
-  rpy.z = atan2f(R.m[1][0]/acosf(rpy.x), R.m[0][0]/acosf(rpy.x));
-  return rpy;
-}
-
 void p2pCB(P2PPacket* packet) {
   controllerLee2_t* self = &g_self2;
   
@@ -196,19 +188,21 @@ void p2pCB(P2PPacket* packet) {
   struct mat33 P = msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
   struct vec u = mvmul(P, vadd3(vscl(-5.0f, ex), vscl(-5.0f, ev), re_d_ddot));
 
-  struct vec F_d = vadd3(F_d_l, vscl(CF_MASS, u), vscl(CF_MASS*GRAVITY_MAGNITUDE, vbasis(2)));
+  struct vec F_d = vadd3(F_d_l, vscl(self->m, u), vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
 
   // Send F_d to the controller
-  float thrust = vdot(F_d, mvmul(self->R, vbasis(2)));
+  float f = vdot(F_d, mvmul(self->R, vbasis(2)));
+  float thrust = f * UINT16_MAX / powerDistributionGetMaxThrust();
 
   struct vec b1_d = vbasis(0);
   struct vec b3_d = vnormalize(F_d);
   struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
   struct mat33 R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
-  struct vec rpy_d = rotmat2rpy(R_d);
-  float roll = rpy_d.x;
-  float pitch = rpy_d.y;
-  float yaw = rpy_d.z;
+
+  struct vec rpy_d = quat2rpy(mat2quat(R_d));
+  float roll = degrees(rpy_d.x);
+  float pitch = -degrees(rpy_d.y);
+  float yaw = degrees(rpy_d.z);
   
   setpoint_t setpoint;
   setpoint.mode.x = modeVelocity;
@@ -390,8 +384,11 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
     R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
 
-#if defined(LEADER) || defined(FOLLOWER)
-    self->F_d = F_d;
+#if defined(LEADER)
+    self->F_d = vscl(self->m, vadd3(
+      vneg(vscl(self->kx, self->ex)),
+      vneg(vscl(self->kv, self->ev)),
+      a_d));
 #endif
 
   } else {
@@ -413,9 +410,9 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       -radians(setpoint->attitude.pitch), // This is in the legacy coordinate system where pitch is inverted
       desiredYaw)));
 
-#if defined(LEADER) || defined(FOLLOWER)
-    self->F_d = vscl(self->f, mcolumn(R_d, 2));
-#endif
+// #if defined(LEADER) || defined(FOLLOWER)
+//     self->F_d = vscl(self->f, mcolumn(R_d, 2));
+// #endif
   }
 
   // Calculate M
