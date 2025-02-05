@@ -56,6 +56,14 @@
 // #define LEADER
 #define FOLLOWER
 
+uint8_t disable_props = 0;
+uint8_t enable_filters = 1;
+
+struct vec print_ex = {0, 0, 0};
+struct vec print_ev = {0, 0, 0};
+
+float t = 0;
+
 typedef struct controllerLee2_s {
   // Quadrotor parameters
   float m;
@@ -96,6 +104,8 @@ typedef struct controllerLee2_s {
   struct vec x;
   struct vec v;
   struct mat33 R;
+
+  float test_f;
 #endif
 } controllerLee2_t;
 
@@ -121,10 +131,10 @@ void appMain() {
   
   P2PPacket packet;
   packet.port = 0x00;
-  packet.size = 7*sizeof(float);
+  packet.size = 9*sizeof(float);
   
   while (1) {
-    vTaskDelay(M2T(100));
+    vTaskDelay(M2T(10));
 
     memcpy(packet.data,                   &self->F_d.x, sizeof(float));
     memcpy(packet.data + sizeof(float),   &self->F_d.y, sizeof(float));
@@ -174,24 +184,41 @@ void p2pCB(P2PPacket* packet) {
   memcpy(&v_l.y,   packet->data + 7*sizeof(float), sizeof(float));
   memcpy(&v_l.z,   packet->data + 8*sizeof(float), sizeof(float));
 
+  if (vmag(F_d_l) < 1e-6f) {
+    return;
+  }
+
   // Where the magic happens
   struct vec re = vsub(self->x, x_l);
   struct vec re_dot = vsub(self->v, v_l);
 
+  // l = 0.3716
+  // float theta = M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
+  // float theta_dot = M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
+  // float theta_ddot = M_PI_F/8.0f * -M_PI_F/2.0f*M_PI_F/2.0f*cosf(M_PI_F/2.0f*t);
+  // struct vec re_d = vscl(vmag(re), mkvec(cosf(theta), 0, sinf(theta)));
+  // struct vec re_d_dot = vscl(vmag(re)*theta_dot, mkvec(-sinf(theta), 0, cosf(theta)));
+  // struct vec re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
+  //                             vscl(vmag(re)*theta_ddot, mkvec(-sinf(theta), 0, cosf(theta))));
+  
   struct vec re_d = vscl(vmag(re), vbasis(0));
   struct vec re_d_dot = vzero();
   struct vec re_d_ddot = vzero();
 
   struct vec ex = vsub(re, re_d);
   struct vec ev = vsub(re_dot, re_d_dot);
+  print_ex = ex;
+  print_ev = ev;
 
   struct mat33 P = msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
-  struct vec u = mvmul(P, vadd3(vscl(-5.0f, ex), vscl(-5.0f, ev), re_d_ddot));
+  struct vec u = mvmul(P, vadd3(vscl(-10.0f, ex), vscl(-10.0f, ev), re_d_ddot));
 
   struct vec F_d = vadd3(F_d_l, vscl(self->m, u), vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
+  self->F_d = vscl(self->m, u);
 
   // Send F_d to the controller
   float f = vdot(F_d, mvmul(self->R, vbasis(2)));
+  self->test_f = vmag(re);
   float thrust = f * UINT16_MAX / powerDistributionGetMaxThrust();
 
   struct vec b1_d = vbasis(0);
@@ -221,7 +248,8 @@ void appMain() {
   p2pRegisterCB(p2pCB);
 
   while (1) {
-    vTaskDelay(M2T(2000));
+    vTaskDelay(M2T(10));
+    t += 0.01f;
   }
 }
 #endif
@@ -316,7 +344,9 @@ void controllerOutOfTreeInit() {
   self->F_d = vzero();
   self->x = vzero();
   self->v = vzero();
-  self->R = mzero();
+  self->R = meye();
+
+  self->test_f = 0;
 #endif
 }
 
@@ -384,7 +414,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
     R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
 
-#if defined(LEADER)
+#ifdef LEADER
     self->F_d = vscl(self->m, vadd3(
       vneg(vscl(self->kx, self->ex)),
       vneg(vscl(self->kv, self->ev)),
@@ -417,20 +447,28 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 
   // Calculate M
   if (vneq(mcolumn(self->R_d_prev, 0), vrepeat(NAN)) && vneq(mcolumn(self->R_d_prev, 1), vrepeat(NAN)) && vneq(mcolumn(self->R_d_prev, 2), vrepeat(NAN))) {
-    // Update W_d_raw buffer
-    for (int i = 0; i < FILTER_SIZE - 1; i++) {
-      self->W_d_raw[i] = self->W_d_raw[i + 1];
+    if (enable_filters) {
+      // Update W_d_raw buffer
+      for (int i = 0; i < FILTER_SIZE - 1; i++) {
+        self->W_d_raw[i] = self->W_d_raw[i + 1];
+      }
+      self->W_d_raw[FILTER_SIZE - 1] = vdiv(mvee(mlog(mmul(mtranspose(self->R_d_prev), R_d))), dt);
+      self->W_d = filter(self->W_d_raw, FILTER_SIZE);
+    } else {
+      self->W_d = vzero();
     }
-    self->W_d_raw[FILTER_SIZE - 1] = vdiv(mvee(mlog(mmul(mtranspose(self->R_d_prev), R_d))), dt);
-    self->W_d = filter(self->W_d_raw, FILTER_SIZE);
 
     if (vneq(self->W_d_prev, vrepeat(NAN))) {
-      // Update W_d_dot_raw buffer
-      for (int i = 0; i < FILTER_SIZE - 1; i++) {
-        self->W_d_dot_raw[i] = self->W_d_dot_raw[i + 1];
+      if (enable_filters) {
+        // Update W_d_dot_raw buffer
+        for (int i = 0; i < FILTER_SIZE - 1; i++) {
+          self->W_d_dot_raw[i] = self->W_d_dot_raw[i + 1];
+        }
+        self->W_d_dot_raw[FILTER_SIZE - 1] = vdiv(vsub(self->W_d, self->W_d_prev), dt);
+        self->W_d_dot = filter(self->W_d_dot_raw, FILTER_SIZE);
+      } else {
+        self->W_d_dot = vzero();
       }
-      self->W_d_dot_raw[FILTER_SIZE - 1] = vdiv(vsub(self->W_d, self->W_d_prev), dt);
-      self->W_d_dot = filter(self->W_d_dot_raw, FILTER_SIZE);
 
       self->eR = vscl(0.5f, mvee(msub(
         mmul(mtranspose(R_d), R),
@@ -461,6 +499,12 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   control->torque[0] = self->M.x;
   control->torque[1] = self->M.y;
   control->torque[2] = self->M.z;
+  if (disable_props) {
+    control->thrustSi = 0.0f;
+    control->torque[0] = 0.0f;
+    control->torque[1] = 0.0f;
+    control->torque[2] = 0.0f;
+  }
 }
 
 PARAM_GROUP_START(ctrlLee2)
@@ -471,6 +515,8 @@ PARAM_ADD(PARAM_FLOAT, kR, &g_self2.kR)
 PARAM_ADD(PARAM_FLOAT, kW, &g_self2.kW)
 // PARAM_ADD(PARAM_FLOAT, kI, &g_self2.kI)
 // PARAM_ADD(PARAM_FLOAT, c2, &g_self2.c2)
+
+PARAM_ADD(PARAM_UINT8, disable_props, &disable_props)
 
 PARAM_GROUP_STOP(ctrlLee2)
 
@@ -510,5 +556,19 @@ LOG_ADD(LOG_FLOAT, W_d3, &g_self2.W_d.z)
 LOG_ADD(LOG_FLOAT, W_d_dot1, &g_self2.W_d_dot.x)
 LOG_ADD(LOG_FLOAT, W_d_dot2, &g_self2.W_d_dot.y)
 LOG_ADD(LOG_FLOAT, W_d_dot3, &g_self2.W_d_dot.z)
+
+LOG_ADD(LOG_FLOAT, F_d1, &g_self2.F_d.x)
+LOG_ADD(LOG_FLOAT, F_d2, &g_self2.F_d.y)
+LOG_ADD(LOG_FLOAT, F_d3, &g_self2.F_d.z)
+
+LOG_ADD(LOG_FLOAT, test_f, &g_self2.test_f)
+
+LOG_ADD(LOG_FLOAT, print_ex1, &print_ex.x)
+LOG_ADD(LOG_FLOAT, print_ex2, &print_ex.y)
+LOG_ADD(LOG_FLOAT, print_ex3, &print_ex.z)
+
+LOG_ADD(LOG_FLOAT, print_ev1, &print_ev.x)
+LOG_ADD(LOG_FLOAT, print_ev2, &print_ev.y)
+LOG_ADD(LOG_FLOAT, print_ev3, &print_ev.z)
 
 LOG_GROUP_STOP(ctrlLee2)
