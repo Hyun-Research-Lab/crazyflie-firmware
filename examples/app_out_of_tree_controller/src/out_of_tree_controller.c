@@ -222,6 +222,9 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   //   struct quat setpoint_quat = mkquat(setpoint->attitudeQuaternion.x, setpoint->attitudeQuaternion.y, setpoint->attitudeQuaternion.z, setpoint->attitudeQuaternion.w);
   //   desiredYaw = quat2rpy(setpoint_quat).z;
   // }
+  if (setpoint->mode.yaw == modeAbs) {
+    desiredYaw = radians(setpoint->attitude.yaw);
+  }
   
   // Calculate f and R_d
   struct mat33 R_d;
