@@ -193,17 +193,17 @@ void p2pCB(P2PPacket* packet) {
   struct vec re_dot = vsub(self->v, v_l);
 
   // l = 0.3716
-  // float theta = M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
-  // float theta_dot = M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
-  // float theta_ddot = M_PI_F/8.0f * -M_PI_F/2.0f*M_PI_F/2.0f*cosf(M_PI_F/2.0f*t);
-  // struct vec re_d = vscl(vmag(re), mkvec(cosf(theta), 0, sinf(theta)));
-  // struct vec re_d_dot = vscl(vmag(re)*theta_dot, mkvec(-sinf(theta), 0, cosf(theta)));
-  // struct vec re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
-  //                             vscl(vmag(re)*theta_ddot, mkvec(-sinf(theta), 0, cosf(theta))));
+  float theta = M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
+  float theta_dot = M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
+  float theta_ddot = M_PI_F/8.0f * -M_PI_F/2.0f*M_PI_F/2.0f*cosf(M_PI_F/2.0f*t);
+  struct vec re_d = vscl(vmag(re), mkvec(cosf(theta), 0, sinf(theta)));
+  struct vec re_d_dot = vscl(vmag(re)*theta_dot, mkvec(-sinf(theta), 0, cosf(theta)));
+  struct vec re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
+                              vscl(vmag(re)*theta_ddot, mkvec(-sinf(theta), 0, cosf(theta))));
   
-  struct vec re_d = vscl(vmag(re), vbasis(0));
-  struct vec re_d_dot = vzero();
-  struct vec re_d_ddot = vzero();
+  // struct vec re_d = vscl(vmag(re), vbasis(0));
+  // struct vec re_d_dot = vzero();
+  // struct vec re_d_ddot = vzero();
 
   struct vec ex = vsub(re, re_d);
   struct vec ev = vsub(re_dot, re_d_dot);
@@ -211,7 +211,7 @@ void p2pCB(P2PPacket* packet) {
   print_ev = ev;
 
   struct mat33 P = msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
-  struct vec u = mvmul(P, vadd3(vscl(-10.0f, ex), vscl(-10.0f, ev), re_d_ddot));
+  struct vec u = mvmul(P, vadd3(vscl(-5.0f, ex), vscl(-5.0f, ev), re_d_ddot));
 
   struct vec F_d = vadd3(F_d_l, vscl(self->m, u), vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
   self->F_d = vscl(self->m, u);
@@ -508,6 +508,8 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 }
 
 PARAM_GROUP_START(ctrlLee2)
+
+PARAM_ADD(PARAM_FLOAT, m, &g_self2.m)
 
 PARAM_ADD(PARAM_FLOAT, kx, &g_self2.kx)
 PARAM_ADD(PARAM_FLOAT, kv, &g_self2.kv)
