@@ -53,9 +53,6 @@
 
 #define FILTER_SIZE 50
 
-// #define LEADER
-#define FOLLOWER
-
 uint8_t disable_props = 0;
 uint8_t enable_filters = 1;
 
@@ -65,6 +62,9 @@ struct vec print_ev = {0, 0, 0};
 float t = 0;
 
 typedef struct controllerLee2_s {
+  uint8_t node;
+  uint8_t parent;
+  
   // Quadrotor parameters
   float m;
   struct vec J; // Inertia matrix (diagonal matrix); kg m^2
@@ -98,7 +98,6 @@ typedef struct controllerLee2_s {
   struct vec W_d;
   struct vec W_d_dot;
 
-#if defined(LEADER) || defined(FOLLOWER)
   // For leader-follower
   struct vec F_d;
   struct vec x;
@@ -106,15 +105,13 @@ typedef struct controllerLee2_s {
   struct mat33 R;
 
   float test_f;
-#endif
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
-#if defined(LEADER) || defined(FOLLOWER)
-  .m = 0.035, // kg
-#else
+  .node = 0, // 0 is leader, 1, 2, 3, ... are followers
+  .parent = 0,
+  
   .m = 0.033, // kg
-#endif
   .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
 
   .kx = 7.0,
@@ -125,33 +122,6 @@ static controllerLee2_t g_self2 = {
   // .c2 = 0.8,
 };
 
-#ifdef LEADER
-void appMain() {
-  controllerLee2_t* self = &g_self2;
-  
-  P2PPacket packet;
-  packet.port = 0x00;
-  packet.size = 9*sizeof(float);
-  
-  while (1) {
-    vTaskDelay(M2T(10));
-
-    memcpy(packet.data,                   &self->F_d.x, sizeof(float));
-    memcpy(packet.data + sizeof(float),   &self->F_d.y, sizeof(float));
-    memcpy(packet.data + 2*sizeof(float), &self->F_d.z, sizeof(float));
-    memcpy(packet.data + 3*sizeof(float), &self->x.x, sizeof(float));
-    memcpy(packet.data + 4*sizeof(float), &self->x.y, sizeof(float));
-    memcpy(packet.data + 5*sizeof(float), &self->x.z, sizeof(float));
-    memcpy(packet.data + 6*sizeof(float), &self->v.x, sizeof(float));
-    memcpy(packet.data + 7*sizeof(float), &self->v.y, sizeof(float));
-    memcpy(packet.data + 8*sizeof(float), &self->v.z, sizeof(float));
-
-    radiolinkSendP2PPacketBroadcast(&packet);
-  }
-}
-#endif
-
-#ifdef FOLLOWER
 static inline struct mat33 vouter(struct vec a, struct vec b) {
   struct mat33 out;
   out.m[0][0] = a.x * b.x;
@@ -168,6 +138,10 @@ static inline struct mat33 vouter(struct vec a, struct vec b) {
 
 void p2pCB(P2PPacket* packet) {
   controllerLee2_t* self = &g_self2;
+
+  if (packet->port != self->parent) {
+    return;
+  }
   
   struct vec F_d_l;
   struct vec x_l;
@@ -193,17 +167,26 @@ void p2pCB(P2PPacket* packet) {
   struct vec re_dot = vsub(self->v, v_l);
 
   // l = 0.3716
-  float theta = M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
-  float theta_dot = M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
-  float theta_ddot = M_PI_F/8.0f * -M_PI_F/2.0f*M_PI_F/2.0f*cosf(M_PI_F/2.0f*t);
-  struct vec re_d = vscl(vmag(re), mkvec(cosf(theta), 0, sinf(theta)));
-  struct vec re_d_dot = vscl(vmag(re)*theta_dot, mkvec(-sinf(theta), 0, cosf(theta)));
-  struct vec re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
-                              vscl(vmag(re)*theta_ddot, mkvec(-sinf(theta), 0, cosf(theta))));
+  // float theta =      M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
+  // float theta_dot =  M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
+  // float theta_ddot = M_PI_F/8.0f * -M_PI_F/2.0f*M_PI_F/2.0f*cosf(M_PI_F/2.0f*t);
+  // struct vec re_d =      vscl(vmag(re),                          mkvec(cosf(theta), 0, sinf(theta)));
+  // struct vec re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(-sinf(theta), 0, cosf(theta)));
+  // struct vec re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
+  //                             vscl(vmag(re)*theta_ddot,          mkvec(-sinf(theta), 0, cosf(theta))));
   
-  // struct vec re_d = vscl(vmag(re), vbasis(0));
-  // struct vec re_d_dot = vzero();
-  // struct vec re_d_ddot = vzero();
+  struct vec re_d;
+  struct vec re_d_dot;
+  struct vec re_d_ddot;
+  if (self->node == 1) {
+    re_d = vscl(vmag(re), vnormalize(mkvec(1, -1, 0)));
+    re_d_dot = vzero();
+    re_d_ddot = vzero();
+  } else if (self->node == 2) {
+    re_d = vscl(vmag(re), vnormalize(mkvec(-1, -1, 0)));
+    re_d_dot = vzero();
+    re_d_ddot = vzero();
+  }
 
   struct vec ex = vsub(re, re_d);
   struct vec ev = vsub(re_dot, re_d_dot);
@@ -245,14 +228,34 @@ void p2pCB(P2PPacket* packet) {
 }
 
 void appMain() {
-  p2pRegisterCB(p2pCB);
+  controllerLee2_t* self = &g_self2;
 
+  if (self->node > 0) {
+    p2pRegisterCB(p2pCB);
+  }
+  
+  P2PPacket packet;
+  packet.port = self->node;
+  packet.size = 9*sizeof(float);
+    
   while (1) {
     vTaskDelay(M2T(10));
+
+    memcpy(packet.data,                   &self->F_d.x, sizeof(float));
+    memcpy(packet.data + sizeof(float),   &self->F_d.y, sizeof(float));
+    memcpy(packet.data + 2*sizeof(float), &self->F_d.z, sizeof(float));
+    memcpy(packet.data + 3*sizeof(float), &self->x.x, sizeof(float));
+    memcpy(packet.data + 4*sizeof(float), &self->x.y, sizeof(float));
+    memcpy(packet.data + 5*sizeof(float), &self->x.z, sizeof(float));
+    memcpy(packet.data + 6*sizeof(float), &self->v.x, sizeof(float));
+    memcpy(packet.data + 7*sizeof(float), &self->v.y, sizeof(float));
+    memcpy(packet.data + 8*sizeof(float), &self->v.z, sizeof(float));
+
+    radiolinkSendP2PPacketBroadcast(&packet);
+
     t += 0.01f;
   }
 }
-#endif
 
 static inline struct mat33 mlog(struct mat33 R) {
 	float acosinput = (R.m[0][0] + R.m[1][1] + R.m[2][2] - 1.0f) / 2.0f;
@@ -340,14 +343,12 @@ void controllerOutOfTreeInit() {
 
   resetFilterBuffers(self);
 
-#if defined(LEADER) || defined(FOLLOWER)
   self->F_d = vzero();
   self->x = vzero();
   self->v = vzero();
   self->R = meye();
 
   self->test_f = 0;
-#endif
 }
 
 bool controllerOutOfTreeTest() {
@@ -380,12 +381,13 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   //   struct quat setpoint_quat = mkquat(setpoint->attitudeQuaternion.x, setpoint->attitudeQuaternion.y, setpoint->attitudeQuaternion.z, setpoint->attitudeQuaternion.w);
   //   desiredYaw = quat2rpy(setpoint_quat).z;
   // }
+  if (setpoint->mode.yaw == modeAbs) {
+    desiredYaw = radians(setpoint->attitude.yaw);
+  }
 
-#if defined(LEADER) || defined(FOLLOWER)
   self->x = x;
   self->v = v;
   self->R = R;
-#endif
   
   // Calculate f and R_d
   struct mat33 R_d;
@@ -414,12 +416,10 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
     R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
 
-#ifdef LEADER
     self->F_d = vscl(self->m, vadd3(
       vneg(vscl(self->kx, self->ex)),
       vneg(vscl(self->kv, self->ev)),
       a_d));
-#endif
 
   } else {
     if (setpoint->mode.z == modeDisable && setpoint->thrust < 1000) {
@@ -508,6 +508,9 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 }
 
 PARAM_GROUP_START(ctrlLee2)
+
+PARAM_ADD(PARAM_UINT8, node, &g_self2.node)
+PARAM_ADD(PARAM_UINT8, parent, &g_self2.parent)
 
 PARAM_ADD(PARAM_FLOAT, m, &g_self2.m)
 
