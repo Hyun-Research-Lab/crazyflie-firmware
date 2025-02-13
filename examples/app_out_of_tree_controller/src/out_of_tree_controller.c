@@ -62,9 +62,6 @@ struct vec print_ev = {0, 0, 0};
 float t = 0;
 
 typedef struct controllerLee2_s {
-  uint8_t node;
-  uint8_t parent;
-  
   // Quadrotor parameters
   float m;
   struct vec J; // Inertia matrix (diagonal matrix); kg m^2
@@ -99,7 +96,10 @@ typedef struct controllerLee2_s {
   struct vec W_d_dot;
 
   // For leader-follower
-  struct vec F_d;
+  uint8_t node;
+  uint8_t parent;
+  
+  struct vec F_d_bar;
   struct vec x;
   struct vec v;
   struct mat33 R;
@@ -143,22 +143,24 @@ void p2pCB(P2PPacket* packet) {
     return;
   }
   
-  struct vec F_d_l;
+  float m_l;
+  struct vec F_d_l_bar;
   struct vec x_l;
   struct vec v_l;
 
   // Get leader information
-  memcpy(&F_d_l.x, packet->data, sizeof(float));
-  memcpy(&F_d_l.y, packet->data + sizeof(float), sizeof(float));
-  memcpy(&F_d_l.z, packet->data + 2*sizeof(float), sizeof(float));
-  memcpy(&x_l.x,   packet->data + 3*sizeof(float), sizeof(float));
-  memcpy(&x_l.y,   packet->data + 4*sizeof(float), sizeof(float));
-  memcpy(&x_l.z,   packet->data + 5*sizeof(float), sizeof(float));
-  memcpy(&v_l.x,   packet->data + 6*sizeof(float), sizeof(float));
-  memcpy(&v_l.y,   packet->data + 7*sizeof(float), sizeof(float));
-  memcpy(&v_l.z,   packet->data + 8*sizeof(float), sizeof(float));
+  memcpy(&m_l,         packet->data,                   sizeof(float));
+  memcpy(&F_d_l_bar.x, packet->data + sizeof(float),   sizeof(float));
+  memcpy(&F_d_l_bar.y, packet->data + 2*sizeof(float), sizeof(float));
+  memcpy(&F_d_l_bar.z, packet->data + 3*sizeof(float), sizeof(float));
+  memcpy(&x_l.x,       packet->data + 4*sizeof(float), sizeof(float));
+  memcpy(&x_l.y,       packet->data + 5*sizeof(float), sizeof(float));
+  memcpy(&x_l.z,       packet->data + 6*sizeof(float), sizeof(float));
+  memcpy(&v_l.x,       packet->data + 7*sizeof(float), sizeof(float));
+  memcpy(&v_l.y,       packet->data + 8*sizeof(float), sizeof(float));
+  memcpy(&v_l.z,       packet->data + 9*sizeof(float), sizeof(float));
 
-  if (vmag(F_d_l) < 1e-6f) {
+  if (vmag(F_d_l_bar) < 1e-6f) {
     return;
   }
 
@@ -196,8 +198,9 @@ void p2pCB(P2PPacket* packet) {
   struct mat33 P = msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
   struct vec u = mvmul(P, vadd3(vscl(-5.0f, ex), vscl(-5.0f, ev), re_d_ddot));
 
-  struct vec F_d = vadd3(F_d_l, vscl(self->m, u), vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
-  self->F_d = vscl(self->m, u);
+  struct vec F_d_bar = vscl(self->m, vadd(vscl(1.0f/m_l, F_d_l_bar), u));
+  struct vec F_d = vadd(F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
+  // self->F_d = vscl(self->m, u);
 
   // Send F_d to the controller
   float f = vdot(F_d, mvmul(self->R, vbasis(2)));
@@ -236,20 +239,21 @@ void appMain() {
   
   P2PPacket packet;
   packet.port = self->node;
-  packet.size = 9*sizeof(float);
+  packet.size = 10*sizeof(float);
     
   while (1) {
     vTaskDelay(M2T(10));
 
-    memcpy(packet.data,                   &self->F_d.x, sizeof(float));
-    memcpy(packet.data + sizeof(float),   &self->F_d.y, sizeof(float));
-    memcpy(packet.data + 2*sizeof(float), &self->F_d.z, sizeof(float));
-    memcpy(packet.data + 3*sizeof(float), &self->x.x, sizeof(float));
-    memcpy(packet.data + 4*sizeof(float), &self->x.y, sizeof(float));
-    memcpy(packet.data + 5*sizeof(float), &self->x.z, sizeof(float));
-    memcpy(packet.data + 6*sizeof(float), &self->v.x, sizeof(float));
-    memcpy(packet.data + 7*sizeof(float), &self->v.y, sizeof(float));
-    memcpy(packet.data + 8*sizeof(float), &self->v.z, sizeof(float));
+    memcpy(packet.data,                   &self->m,         sizeof(float));
+    memcpy(packet.data + sizeof(float),   &self->F_d_bar.x, sizeof(float));
+    memcpy(packet.data + 2*sizeof(float), &self->F_d_bar.y, sizeof(float));
+    memcpy(packet.data + 3*sizeof(float), &self->F_d_bar.z, sizeof(float));
+    memcpy(packet.data + 4*sizeof(float), &self->x.x,       sizeof(float));
+    memcpy(packet.data + 5*sizeof(float), &self->x.y,       sizeof(float));
+    memcpy(packet.data + 6*sizeof(float), &self->x.z,       sizeof(float));
+    memcpy(packet.data + 7*sizeof(float), &self->v.x,       sizeof(float));
+    memcpy(packet.data + 8*sizeof(float), &self->v.y,       sizeof(float));
+    memcpy(packet.data + 9*sizeof(float), &self->v.z,       sizeof(float));
 
     radiolinkSendP2PPacketBroadcast(&packet);
 
@@ -343,7 +347,7 @@ void controllerOutOfTreeInit() {
 
   resetFilterBuffers(self);
 
-  self->F_d = vzero();
+  self->F_d_bar = vzero();
   self->x = vzero();
   self->v = vzero();
   self->R = meye();
@@ -416,7 +420,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
     R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
 
-    self->F_d = vscl(self->m, vadd3(
+    self->F_d_bar = vscl(self->m, vadd3(
       vneg(vscl(self->kx, self->ex)),
       vneg(vscl(self->kv, self->ev)),
       a_d));
@@ -562,9 +566,9 @@ LOG_ADD(LOG_FLOAT, W_d_dot1, &g_self2.W_d_dot.x)
 LOG_ADD(LOG_FLOAT, W_d_dot2, &g_self2.W_d_dot.y)
 LOG_ADD(LOG_FLOAT, W_d_dot3, &g_self2.W_d_dot.z)
 
-LOG_ADD(LOG_FLOAT, F_d1, &g_self2.F_d.x)
-LOG_ADD(LOG_FLOAT, F_d2, &g_self2.F_d.y)
-LOG_ADD(LOG_FLOAT, F_d3, &g_self2.F_d.z)
+LOG_ADD(LOG_FLOAT, F_d1, &g_self2.F_d_bar.x)
+LOG_ADD(LOG_FLOAT, F_d2, &g_self2.F_d_bar.y)
+LOG_ADD(LOG_FLOAT, F_d3, &g_self2.F_d_bar.z)
 
 LOG_ADD(LOG_FLOAT, test_f, &g_self2.test_f)
 
