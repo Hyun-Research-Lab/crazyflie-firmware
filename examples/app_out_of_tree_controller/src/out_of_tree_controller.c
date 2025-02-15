@@ -66,17 +66,22 @@ typedef struct controllerLee2_s {
     // Gains
     float kx;
     float kv;
+    float ki;
+    float c1;
+
     float kR;
     float kW;
-    // float kI;
-    // float c2;
+    float kI;
+    float c2;
 
     // Errors
     struct vec ex;
     struct vec ev;
+    struct vec ei;
+
     struct vec eR;
     struct vec eW;
-    // struct vec eI;
+    struct vec eI;
 
     // Wrench
     float f;
@@ -98,11 +103,14 @@ static controllerLee2_t g_self2 = {
   .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
 
   .kx = 7.0,
-  .kv = 4.0, // 6 4 works better than 7 4 and 7 5 and 8 5
+  .kv = 4.0,
+  .ki = 1.0,
+  .c1 = 3.6,
+
   .kR = 0.008,
   .kW = 0.002,
-  // .kI = 0.0006,
-  // .c2 = 0.8,
+  .kI = 0.001,
+  .c2 = 0.8,
 };
 
 static inline struct mat33 mlog(struct mat33 R) {
@@ -179,9 +187,11 @@ void controllerOutOfTreeInit() {
   
   self->ex = vzero();
   self->ev = vzero();
+  self->ei = vzero();
+
   self->eR = vzero();
   self->eW = vzero();
-  // self->eI = vzero();
+  self->eI = vzero();
 
   self->R_d_prev = mcolumns(vrepeat(NAN), vrepeat(NAN), vrepeat(NAN));
   self->W_d_prev = vrepeat(NAN);
@@ -236,16 +246,19 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 
     self->ex = vsub(x, x_d);
     self->ev = vsub(v, v_d);
+    self->ei = vadd(self->ei, vscl(dt, vadd(self->ev, vscl(self->c1, self->ex))));
     
-    struct vec F_d = vscl(self->m, vadd4(
+    struct vec F_d = vscl(self->m, vadd(vadd4(
       vneg(vscl(self->kx, self->ex)),
       vneg(vscl(self->kv, self->ev)),
-      a_d,
+      vneg(vscl(self->ki, self->ei)),
+      a_d),
       vscl(GRAVITY_MAGNITUDE, vbasis(2))));
     self->f = vdot(F_d, mvmul(R, vbasis(2)));
     
     if (self->f < 0.01f) {
-      // self->eI = vzero();
+      self->ei = vzero();
+      self->eI = vzero();
       resetFilterBuffers(self);
     }
 
@@ -260,7 +273,8 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       control->torque[0] = 0;
       control->torque[1] = 0;
       control->torque[2] = 0;
-      // self->eI = vzero();
+      self->ei = vzero();
+      self->eI = vzero();
       resetFilterBuffers(self);
       return;
     }
@@ -294,21 +308,14 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
         mmul(mtranspose(R_d), R),
         mmul(mtranspose(R), R_d))));
       self->eW = vsub(W, mvmul(mtranspose(R), mvmul(R_d, self->W_d)));
-      // self->eI = vadd(self->eI, vscl(dt, vadd(self->eW, vscl(self->c2, self->eR))));
+      self->eI = vadd(self->eI, vscl(dt, vadd(self->eW, vscl(self->c2, self->eR))));
 
-      self->M = vadd4(
+      self->M = vadd(vadd4(
         vneg(vscl(self->kR, self->eR)),
         vneg(vscl(self->kW, self->eW)),
-        vcross(W, veltmul(self->J, W)),
-        vneg(veltmul(self->J, vsub(
-          vcross(W, mvmul(mtranspose(R), mvmul(R_d, self->W_d))),
-          mvmul(mtranspose(R), mvmul(R_d, self->W_d_dot))))));
-      // self->M = vadd(vadd4(
-      //   vneg(vscl(self->kR, self->eR)),
-      //   vneg(vscl(self->kW, self->eW)),
-      //   vneg(vscl(self->kI, self->eI)),
-      //   vcross(mvmul(mtranspose(R), mvmul(R_d, W_d)), veltmul(self->J, mvmul(mtranspose(R), mvmul(R_d, W_d))))),
-      //   veltmul(self->J, mvmul(mtranspose(R), mvmul(R_d, W_d_dot))));
+        vneg(vscl(self->kI, self->eI)),
+        vcross(mvmul(mtranspose(R), mvmul(R_d, self->W_d)), veltmul(self->J, mvmul(mtranspose(R), mvmul(R_d, self->W_d))))),
+        veltmul(self->J, mvmul(mtranspose(R), mvmul(R_d, self->W_d_dot))));
     }
     self->W_d_prev = self->W_d;
   }
