@@ -115,7 +115,7 @@ static controllerLee2_t g_self2 = {
   .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
 
   .kx = 7.0,
-  .kv = 4.0, // 6 4 works better than 7 4 and 7 5 and 8 5
+  .kv = 4.0,
   .kR = 0.008,
   .kW = 0.002,
   // .kI = 0.0006,
@@ -208,7 +208,7 @@ void p2pCB(P2PPacket* packet) {
   struct mat33 P = msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
   struct vec u = mvmul(P, vadd3(vscl(-5.0f, ex), vscl(-5.0f, ev), re_d_ddot));
 
-  struct vec F_d_bar = vscl(self->m, vadd(vscl(1.0f/m_l, F_d_l_bar), u));
+  struct vec F_d_bar = vscl(self->m, vadd(vdiv(F_d_l_bar, m_l), u));
   struct vec F_d = vadd(F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
   // self->F_d = vscl(self->m, u);
 
