@@ -54,7 +54,7 @@
 #define FILTER_SIZE 50
 
 uint8_t disable_props = 0;
-uint8_t enable_filters = 1;
+uint8_t enable_filters = 0;
 
 struct vec print_ex = {0, 0, 0};
 struct vec print_ev = {0, 0, 0};
@@ -108,7 +108,7 @@ typedef struct controllerLee2_s {
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
-  .node = 0, // 0 is leader, 1, 2, 3, ... are followers
+  .node = 2, // 0 is leader, 1, 2, 3, ... are followers
   .parent = 0,
   
   .m = 0.033, // kg
@@ -139,6 +139,12 @@ static inline struct mat33 vouter(struct vec a, struct vec b) {
 void p2pCB(P2PPacket* packet) {
   controllerLee2_t* self = &g_self2;
 
+  // Copy time from leader
+  if (packet->port == 0) {
+    memcpy(&t, packet->data, sizeof(float));
+  }
+  
+  // Only process packets from the parent
   if (packet->port != self->parent) {
     return;
   }
@@ -148,17 +154,17 @@ void p2pCB(P2PPacket* packet) {
   struct vec x_l;
   struct vec v_l;
 
-  // Get leader information
-  memcpy(&m_l,         packet->data,                   sizeof(float));
-  memcpy(&F_d_l_bar.x, packet->data + sizeof(float),   sizeof(float));
-  memcpy(&F_d_l_bar.y, packet->data + 2*sizeof(float), sizeof(float));
-  memcpy(&F_d_l_bar.z, packet->data + 3*sizeof(float), sizeof(float));
-  memcpy(&x_l.x,       packet->data + 4*sizeof(float), sizeof(float));
-  memcpy(&x_l.y,       packet->data + 5*sizeof(float), sizeof(float));
-  memcpy(&x_l.z,       packet->data + 6*sizeof(float), sizeof(float));
-  memcpy(&v_l.x,       packet->data + 7*sizeof(float), sizeof(float));
-  memcpy(&v_l.y,       packet->data + 8*sizeof(float), sizeof(float));
-  memcpy(&v_l.z,       packet->data + 9*sizeof(float), sizeof(float));
+  // Get parent information
+  memcpy(&m_l,         packet->data + sizeof(float),    sizeof(float));
+  memcpy(&F_d_l_bar.x, packet->data + 2*sizeof(float),  sizeof(float));
+  memcpy(&F_d_l_bar.y, packet->data + 3*sizeof(float),  sizeof(float));
+  memcpy(&F_d_l_bar.z, packet->data + 4*sizeof(float),  sizeof(float));
+  memcpy(&x_l.x,       packet->data + 5*sizeof(float),  sizeof(float));
+  memcpy(&x_l.y,       packet->data + 6*sizeof(float),  sizeof(float));
+  memcpy(&x_l.z,       packet->data + 7*sizeof(float),  sizeof(float));
+  memcpy(&v_l.x,       packet->data + 8*sizeof(float),  sizeof(float));
+  memcpy(&v_l.y,       packet->data + 9*sizeof(float),  sizeof(float));
+  memcpy(&v_l.z,       packet->data + 10*sizeof(float), sizeof(float));
 
   if (vmag(F_d_l_bar) < 1e-6f) {
     return;
@@ -172,22 +178,26 @@ void p2pCB(P2PPacket* packet) {
   // float theta =      M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
   // float theta_dot =  M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
   // float theta_ddot = M_PI_F/8.0f * -M_PI_F/2.0f*M_PI_F/2.0f*cosf(M_PI_F/2.0f*t);
-  // struct vec re_d =      vscl(vmag(re),                          mkvec(cosf(theta), 0, sinf(theta)));
-  // struct vec re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(-sinf(theta), 0, cosf(theta)));
-  // struct vec re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
-  //                             vscl(vmag(re)*theta_ddot,          mkvec(-sinf(theta), 0, cosf(theta))));
   
   struct vec re_d;
   struct vec re_d_dot;
   struct vec re_d_ddot;
   if (self->node == 1) {
-    re_d = vscl(vmag(re), vnormalize(mkvec(1, -1, 0)));
+    re_d = vscl(vmag(re), vnormalize(mkvec(1, 0, 0)));
     re_d_dot = vzero();
     re_d_ddot = vzero();
+    // re_d =      vscl(vmag(re),                          mkvec(cosf(theta),  0, sinf(theta)));
+    // re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(-sinf(theta), 0, cosf(theta)));
+    // re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
+    //                           vscl(vmag(re)*theta_ddot, mkvec(-sinf(theta), 0, cosf(theta))));
   } else if (self->node == 2) {
-    re_d = vscl(vmag(re), vnormalize(mkvec(-1, -1, 0)));
+    re_d = vscl(vmag(re), vnormalize(mkvec(-1, 0, 0)));
     re_d_dot = vzero();
     re_d_ddot = vzero();
+    // re_d =      vscl(vmag(re),                          mkvec(-cosf(theta), 0, sinf(theta)));
+    // re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(sinf(theta),  0, cosf(theta)));
+    // re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(cosf(theta),  0, -sinf(theta))),
+    //                           vscl(vmag(re)*theta_ddot, mkvec(sinf(theta),  0, cosf(theta))));
   }
 
   struct vec ex = vsub(re, re_d);
@@ -239,25 +249,27 @@ void appMain() {
   
   P2PPacket packet;
   packet.port = self->node;
-  packet.size = 10*sizeof(float);
+  packet.size = 11*sizeof(float);
     
   while (1) {
     vTaskDelay(M2T(10));
+    if (self->node == 0) {
+      t += 0.01f;
+    }
 
-    memcpy(packet.data,                   &self->m,         sizeof(float));
-    memcpy(packet.data + sizeof(float),   &self->F_d_bar.x, sizeof(float));
-    memcpy(packet.data + 2*sizeof(float), &self->F_d_bar.y, sizeof(float));
-    memcpy(packet.data + 3*sizeof(float), &self->F_d_bar.z, sizeof(float));
-    memcpy(packet.data + 4*sizeof(float), &self->x.x,       sizeof(float));
-    memcpy(packet.data + 5*sizeof(float), &self->x.y,       sizeof(float));
-    memcpy(packet.data + 6*sizeof(float), &self->x.z,       sizeof(float));
-    memcpy(packet.data + 7*sizeof(float), &self->v.x,       sizeof(float));
-    memcpy(packet.data + 8*sizeof(float), &self->v.y,       sizeof(float));
-    memcpy(packet.data + 9*sizeof(float), &self->v.z,       sizeof(float));
+    memcpy(packet.data,                    &t,               sizeof(float));
+    memcpy(packet.data + sizeof(float),    &self->m,         sizeof(float));
+    memcpy(packet.data + 2*sizeof(float),  &self->F_d_bar.x, sizeof(float));
+    memcpy(packet.data + 3*sizeof(float),  &self->F_d_bar.y, sizeof(float));
+    memcpy(packet.data + 4*sizeof(float),  &self->F_d_bar.z, sizeof(float));
+    memcpy(packet.data + 5*sizeof(float),  &self->x.x,       sizeof(float));
+    memcpy(packet.data + 6*sizeof(float),  &self->x.y,       sizeof(float));
+    memcpy(packet.data + 7*sizeof(float),  &self->x.z,       sizeof(float));
+    memcpy(packet.data + 8*sizeof(float),  &self->v.x,       sizeof(float));
+    memcpy(packet.data + 9*sizeof(float),  &self->v.y,       sizeof(float));
+    memcpy(packet.data + 10*sizeof(float), &self->v.z,       sizeof(float));
 
     radiolinkSendP2PPacketBroadcast(&packet);
-
-    t += 0.01f;
   }
 }
 
@@ -444,9 +456,9 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       -radians(setpoint->attitude.pitch), // This is in the legacy coordinate system where pitch is inverted
       desiredYaw)));
 
-// #if defined(LEADER) || defined(FOLLOWER)
-//     self->F_d = vscl(self->f, mcolumn(R_d, 2));
-// #endif
+    struct vec b3 = mcolumn(R, 2);
+    struct vec b3_d = mcolumn(R_d, 2);
+    self->F_d_bar = vscl(self->f/vdot(b3_d, b3), b3_d);
   }
 
   // Calculate M
