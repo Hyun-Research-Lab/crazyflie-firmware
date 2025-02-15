@@ -107,9 +107,9 @@ static controllerLee2_t g_self2 = {
   .ki = 1.0,
   .c1 = 3.6,
 
-  .kR = 0.008,
+  .kR = 0.007,
   .kW = 0.002,
-  .kI = 0.001,
+  .kI = 0.0005,
   .c2 = 0.8,
 };
 
