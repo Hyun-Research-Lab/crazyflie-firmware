@@ -115,7 +115,7 @@ typedef struct controllerLee2_s {
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
-  .node = 2, // 0 is leader, 1, 2, 3, ... are followers
+  .node = 0, // 0 is leader, 1, 2, 3, ... are followers
   .parent = 0,
   
   .m = 0.033, // kg
@@ -186,29 +186,29 @@ void p2pCB(P2PPacket* packet) {
   struct vec re_dot = vsub(self->v, v_l);
 
   // l = 0.3716
-  float theta =      M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
-  float theta_dot =  M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
-  float theta_ddot = M_PI_F/8.0f * -M_PI_F/2.0f*M_PI_F/2.0f*cosf(M_PI_F/2.0f*t);
+  // float theta =      M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
+  // float theta_dot =  M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
+  // float theta_ddot = M_PI_F/8.0f * -M_PI_F/2.0f*M_PI_F/2.0f*cosf(M_PI_F/2.0f*t);
   
   struct vec re_d;
   struct vec re_d_dot;
   struct vec re_d_ddot;
   if (self->node == 1) {
-    // re_d = vscl(vmag(re), vnormalize(mkvec(1, 0, 0)));
-    // re_d_dot = vzero();
-    // re_d_ddot = vzero();
-    re_d =      vscl(vmag(re),                          mkvec(cosf(theta),  0, sinf(theta)));
-    re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(-sinf(theta), 0, cosf(theta)));
-    re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
-                              vscl(vmag(re)*theta_ddot, mkvec(-sinf(theta), 0, cosf(theta))));
+    re_d = vscl(vmag(re), vnormalize(mkvec(1, 0, 0)));
+    re_d_dot = vzero();
+    re_d_ddot = vzero();
+    // re_d =      vscl(vmag(re),                          mkvec(cosf(theta),  0, sinf(theta)));
+    // re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(-sinf(theta), 0, cosf(theta)));
+    // re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
+    //                           vscl(vmag(re)*theta_ddot, mkvec(-sinf(theta), 0, cosf(theta))));
   } else if (self->node == 2) {
-    // re_d = vscl(vmag(re), vnormalize(mkvec(-1, 0, 0)));
-    // re_d_dot = vzero();
-    // re_d_ddot = vzero();
-    re_d =      vscl(vmag(re),                          mkvec(-cosf(theta), 0, sinf(theta)));
-    re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(sinf(theta),  0, cosf(theta)));
-    re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(cosf(theta),  0, -sinf(theta))),
-                              vscl(vmag(re)*theta_ddot, mkvec(sinf(theta),  0, cosf(theta))));
+    re_d = vscl(vmag(re), vnormalize(mkvec(-1, 0, 0)));
+    re_d_dot = vzero();
+    re_d_ddot = vzero();
+    // re_d =      vscl(vmag(re),                          mkvec(-cosf(theta), 0, sinf(theta)));
+    // re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(sinf(theta),  0, cosf(theta)));
+    // re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(cosf(theta),  0, -sinf(theta))),
+    //                           vscl(vmag(re)*theta_ddot, mkvec(sinf(theta),  0, cosf(theta))));
   }
 
   self->ex_lf = vsub(re, re_d);
