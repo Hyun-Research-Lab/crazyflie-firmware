@@ -69,6 +69,7 @@ typedef struct controllerLee2_s {
   float kv;
   float ki;
   float c1;
+  float sigma;
 
   float kR;
   float kW;
@@ -107,17 +108,20 @@ typedef struct controllerLee2_s {
   struct vec v;
   struct mat33 R;
 
+  float kx_lf;
+  float kv_lf;
+  float ki_lf;
+  float sigma_lf;
+
   struct vec ex_lf;
   struct vec ev_lf;
   struct vec ei_lf;
-
-  float sigma_lf;
 
   float test_f;
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
-  .node = 2, // 0 is leader, 1, 2, 3, ... are followers
+  .node = 0, // 0 is leader, 1, 2, 3, ... are followers
   .parent = 0,
   
   .m = 0.036, // kg
@@ -127,12 +131,16 @@ static controllerLee2_t g_self2 = {
   .kv = 4.0,
   .ki = 1.0,
   .c1 = 3.6,
+  .sigma = 1.0,
 
   .kR = 0.007,
   .kW = 0.002,
   .kI = 0.0005,
   .c2 = 0.8,
 
+  .kx_lf = 10.0,
+  .kv_lf = 10.0,
+  .ki_lf = 4.0,
   .sigma_lf = 1.0,
 };
 
@@ -196,10 +204,9 @@ void p2pCB(P2PPacket* packet) {
   struct vec re = vsub(self->x, x_l);
   struct vec re_dot = vsub(self->v, v_l);
 
-  // l = 0.3716
-  // float theta =      M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
-  // float theta_dot =  M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
-  // float theta_ddot = M_PI_F/8.0f * -M_PI_F/2.0f*M_PI_F/2.0f*cosf(M_PI_F/2.0f*t);
+  float theta =      M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
+  float theta_dot =  M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
+  float theta_ddot = M_PI_F/8.0f * -M_PI_F/2.0f*M_PI_F/2.0f*cosf(M_PI_F/2.0f*t);
   
   // Desired values
   struct vec re_d;
@@ -207,34 +214,35 @@ void p2pCB(P2PPacket* packet) {
   struct vec re_d_ddot;
   struct vec b1_d;
   if (self->node == 1) {
-    re_d = vscl(vmag(re), vnormalize(mkvec(1, 0, 0)));
-    re_d_dot = vzero();
-    re_d_ddot = vzero();
-    // re_d =      vscl(vmag(re),                          mkvec(cosf(theta),  0, sinf(theta)));
-    // re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(-sinf(theta), 0, cosf(theta)));
-    // re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
-    //                           vscl(vmag(re)*theta_ddot, mkvec(-sinf(theta), 0, cosf(theta))));
+    // re_d = vscl(vmag(re), vnormalize(mkvec(1, 0, 0)));
+    // re_d_dot = vzero();
+    // re_d_ddot = vzero();
+    re_d =      vscl(vmag(re),                          mkvec(cosf(theta),  0, sinf(theta)));
+    re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(-sinf(theta), 0, cosf(theta)));
+    re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
+                              vscl(vmag(re)*theta_ddot, mkvec(-sinf(theta), 0, cosf(theta))));
     b1_d = vbasis(0);
   } else if (self->node == 2) {
-    re_d = vscl(vmag(re), vnormalize(mkvec(-1, 0, 0)));
-    re_d_dot = vzero();
-    re_d_ddot = vzero();
-    // re_d =      vscl(vmag(re),                          mkvec(-cosf(theta), 0, sinf(theta)));
-    // re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(sinf(theta),  0, cosf(theta)));
-    // re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(cosf(theta),  0, -sinf(theta))),
-    //                           vscl(vmag(re)*theta_ddot, mkvec(sinf(theta),  0, cosf(theta))));
+    // re_d = vscl(vmag(re), vnormalize(mkvec(-1, 0, 0)));
+    // re_d_dot = vzero();
+    // re_d_ddot = vzero();
+    re_d =      vscl(vmag(re),                          mkvec(-cosf(theta), 0, sinf(theta)));
+    re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(sinf(theta),  0, cosf(theta)));
+    re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(cosf(theta),  0, -sinf(theta))),
+                              vscl(vmag(re)*theta_ddot, mkvec(sinf(theta),  0, cosf(theta))));
     b1_d = vbasis(0);
   }
 
   self->ex_lf = vsub(re, re_d);
   self->ev_lf = vsub(re_dot, re_d_dot);
   self->ei_lf = vadd(self->ei_lf, vscl(1.0f/NETWORK_RATE, self->ex_lf));
+  self->ei_lf = vclampscl2(self->ei_lf, -self->sigma_lf, self->sigma_lf);
 
   struct mat33 P = msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
   struct vec u = mvmul(P, vadd4(
-    vscl(-5.0f, self->ex_lf),
-    vscl(-5.0f, self->ev_lf),
-    vscl(-2.0f, vclampscl2(self->ei_lf, -self->sigma_lf, self->sigma_lf)),
+    vscl(-self->kx_lf, self->ex_lf),
+    vscl(-self->kv_lf, self->ev_lf),
+    vscl(-self->ki_lf, self->ei_lf),
     re_d_ddot));
 
   struct vec F_d_bar = vscl(self->m, vadd(vdiv(F_d_l_bar, m_l), u));
@@ -451,13 +459,15 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     self->ex = vsub(x, x_d);
     self->ev = vsub(v, v_d);
     self->ei = vadd(self->ei, vscl(dt, vadd(self->ev, vscl(self->c1, self->ex))));
+    self->ei = vclampscl2(self->ei, -self->sigma, self->sigma);
     
-    struct vec F_d = vscl(self->m, vadd(vadd4(
-      vneg(vscl(self->kx, self->ex)),
-      vneg(vscl(self->kv, self->ev)),
-      vneg(vscl(self->ki, self->ei)),
-      a_d),
-      vscl(GRAVITY_MAGNITUDE, vbasis(2))));
+    self->F_d_bar = vscl(self->m, vadd4(
+      vscl(-self->kx, self->ex),
+      vscl(-self->kv, self->ev),
+      vscl(-self->ki, self->ei),
+      a_d));
+    self->F_d_bar = veltmul(mkvec(0.1f, 0.1f, 1.0f), self->F_d_bar);
+    struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
     self->f = vdot(F_d, mvmul(R, vbasis(2)));
     
     if (self->f < 0.01f) {
@@ -469,11 +479,6 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec b3_d = vnormalize(F_d);
     struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
     R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
-
-    self->F_d_bar = vscl(self->m, vadd3(
-      vneg(vscl(self->kx, self->ex)),
-      vneg(vscl(self->kv, self->ev)),
-      a_d));
 
   } else {
     if (setpoint->mode.z == modeDisable && setpoint->thrust < 1000) {
@@ -570,6 +575,10 @@ PARAM_ADD(PARAM_FLOAT, kW, &g_self2.kW)
 // PARAM_ADD(PARAM_FLOAT, c2, &g_self2.c2)
 
 PARAM_ADD(PARAM_UINT8, disable_props, &disable_props)
+
+PARAM_ADD(PARAM_FLOAT, kx_lf, &g_self2.kx_lf)
+PARAM_ADD(PARAM_FLOAT, kv_lf, &g_self2.kv_lf)
+PARAM_ADD(PARAM_FLOAT, ki_lf, &g_self2.ki_lf)
 
 PARAM_GROUP_STOP(ctrlLee2)
 
