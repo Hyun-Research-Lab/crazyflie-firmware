@@ -25,6 +25,14 @@
  * out_of_tree_controller.c - App layer application of an out of tree controller.
  */
 
+// Crazyflies:
+// 1: good
+// 2: really good
+// 3: bad
+// 4: good
+// 5: really good
+// 6: good
+
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -53,6 +61,7 @@
 
 #define FILTER_SIZE 50
 #define NETWORK_RATE RATE_100_HZ
+#define NODE_UNSET UINT8_MAX
 
 uint8_t disable_props = 0;
 uint8_t enable_filters = 0;
@@ -121,8 +130,8 @@ typedef struct controllerLee2_s {
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
-  .node = 0, // 0 is leader, 1, 2, 3, ... are followers
-  .parent = 0,
+  .node = NODE_UNSET, // 0 is leader, 1, 2, 3, ... are followers
+  .parent = NODE_UNSET,
   
   .m = 0.036, // kg
   .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
@@ -245,8 +254,8 @@ void p2pCB(P2PPacket* packet) {
     vscl(-self->ki_lf, self->ei_lf),
     re_d_ddot));
 
-  struct vec F_d_bar = vscl(self->m, vadd(vdiv(F_d_l_bar, m_l), u));
-  struct vec F_d = vadd(F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
+  self->F_d_bar = vscl(self->m, vadd(vdiv(F_d_l_bar, m_l), u));
+  struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
   // self->F_d = vscl(self->m, u);
 
   // Send F_d to the controller
@@ -280,6 +289,12 @@ void p2pCB(P2PPacket* packet) {
 void appMain() {
   controllerLee2_t* self = &g_self2;
 
+  // Wait for the node and parent to be set
+  while (self->node == NODE_UNSET || self->parent == NODE_UNSET) {
+    vTaskDelay(M2T(100));
+  }
+
+  // Register the callback for followers
   if (self->node > 0) {
     p2pRegisterCB(p2pCB);
   }
@@ -500,9 +515,9 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       -radians(setpoint->attitude.pitch), // This is in the legacy coordinate system where pitch is inverted
       desiredYaw)));
 
-    struct vec b3 = mcolumn(R, 2);
-    struct vec b3_d = mcolumn(R_d, 2);
-    self->F_d_bar = vscl(self->f/vdot(b3_d, b3), b3_d);
+    // struct vec b3 = mcolumn(R, 2);
+    // struct vec b3_d = mcolumn(R_d, 2);
+    // self->F_d_bar = vscl(self->f/vdot(b3_d, b3), b3_d);
   }
 
   // Calculate M
@@ -636,5 +651,7 @@ LOG_ADD(LOG_FLOAT, ev_lf3, &g_self2.ev_lf.z)
 LOG_ADD(LOG_FLOAT, ei_lf1, &g_self2.ei_lf.x)
 LOG_ADD(LOG_FLOAT, ei_lf2, &g_self2.ei_lf.y)
 LOG_ADD(LOG_FLOAT, ei_lf3, &g_self2.ei_lf.z)
+
+LOG_ADD(LOG_FLOAT, t, &t)
 
 LOG_GROUP_STOP(ctrlLee2)
