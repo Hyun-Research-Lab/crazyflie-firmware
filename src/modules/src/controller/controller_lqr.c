@@ -55,15 +55,32 @@ bool controllerLQRTest(controllerLQR_t* self)
   return true;
 }
 
+static float px, py, pz;
+static float vx, vy, vz;
+static float roll, pitch, yaw;
+static float wx, wy, wz;
+
+static float m1_out;
+static float m4_out;
+static float s1_out;
+static float s2_out;
+
+static float setpoint_px = 0;
+static float setpoint_py = 0;
+static float setpoint_pz = 1.0;
+
+static int lqr_count = 0;
 void controllerLQR(controllerLQR_t* self, control_t *control, const setpoint_t *setpoint,
                                          const sensorData_t *sensors,
                                          const state_t *state,
                                          const uint32_t tick)
 {
 
-  if (!RATE_DO_EXECUTE(RATE_50_HZ, tick)) {
+  if (!RATE_DO_EXECUTE(RATE_1000_HZ, tick)) {
     return;
   }
+
+  lqr_count ++;
 
   // uint64_t startTime = usecTimestamp();
   // float dt = (float)(1.0f/1000.0f);
@@ -79,10 +96,35 @@ void controllerLQR(controllerLQR_t* self, control_t *control, const setpoint_t *
                  state->velocity.x, state->velocity.y, state->velocity.z,
                  radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z)};
 
-  float xd[12] = {0, 0, 108, 
-                  0, 0, 0, 
-                  0, 0, 0, 
-                  0, 0, 0};
+  x[9] = 0;
+  x[10] = 0;
+  x[11] = 0;
+
+  // float xd[12] = {setpoint->position.x, setpoint->position.y, setpoint->position.z, 
+  //                 0, 0, 0, 
+  //                 0, 0, 0, 
+  //                 0, 0, 0};
+
+  float xd[12] = {setpoint_px, setpoint_py, setpoint_pz,
+    0, 0, 0, 
+    0, 0, 0, 
+    0, 0, 0};
+    
+  roll = state->attitude.roll;
+  pitch = state->attitude.pitch;
+  yaw = state->attitude.yaw;
+
+  wx = sensors->gyro.x;
+  wy = sensors->gyro.y;
+  wz = sensors->gyro.z;
+
+  px = state->position.x;
+  py = state->position.y;
+  pz = state->position.z;
+
+  vx = state->velocity.x;
+  vy = state->velocity.y;
+  vz = state->velocity.z;
 
   // do the matrix multiplication
   float tmp = 0;
@@ -90,24 +132,36 @@ void controllerLQR(controllerLQR_t* self, control_t *control, const setpoint_t *
     tmp += -self->k4[i] * (x[i] - xd[i]);
   }
   control->motorLeft_N = tmp + 9.81f*0.320f/2.0f;
+  m1_out = control->motorLeft_N;
+  // control->motorLeft_N = 0.0;
+  // control->motorLeft_N = 3.3/2;
 
   tmp = 0;
   for (int i = 0; i < 12; i++) {
     tmp += -self->k3[i] * (x[i] - xd[i]);
   }
   control->motorRight_N = tmp + 9.81f*0.320f/2.0f;
+  m4_out = control->motorRight_N;
+  // control->motorRight_N = 0.0f;
+  // control->motorRight_N = 3.3/2;
+
+  // ros2 launch crazyflie_examples launch.py script:=hello_world backend:=cflib
 
   tmp = 0;
   for (int i = 0; i < 12; i++) {
     tmp += -self->k2[i] * (x[i] - xd[i]);
   }
-  control->servoLeft_deg = 0; // degrees(tmp);
+  // control->servoLeft_deg = (lqr_count / 10) % 90 - 45; // degrees(tmp);
+  control->servoLeft_deg = -degrees(tmp);
+  s1_out = -degrees(tmp);
 
   tmp = 0;
   for (int i = 0; i < 12; i++) {
     tmp += -self->k1[i] * (x[i] - xd[i]);
   }
-  control->servoRight_deg = 0; // degrees(tmp);
+  // control->servoRight_deg = (lqr_count / 10) % 90 - 45; // degrees(tmp);
+  control->servoRight_deg = degrees(tmp);
+  s2_out = degrees(tmp);
 
   // struct vec dessnap = vzero();
   // Address inconsistency in firmware where we need to compute our own desired yaw angle
@@ -278,3 +332,40 @@ void controllerLQRFirmware(control_t *control, const setpoint_t *setpoint,
 {
   controllerLQR(&g_self, control, setpoint, sensors, state, tick);
 }
+
+#include "log.h"
+#include "param.h"
+LOG_GROUP_START(ctrlLQR)
+
+LOG_ADD(LOG_FLOAT, px, &px)
+LOG_ADD(LOG_FLOAT, py, &py)
+LOG_ADD(LOG_FLOAT, pz, &pz)
+LOG_ADD(LOG_FLOAT, vx, &vx)
+LOG_ADD(LOG_FLOAT, vy, &vy)
+LOG_ADD(LOG_FLOAT, vz, &vz)
+LOG_ADD(LOG_FLOAT, wx, &wx)
+LOG_ADD(LOG_FLOAT, wy, &wy)
+LOG_ADD(LOG_FLOAT, wz, &wz)
+LOG_ADD(LOG_FLOAT, roll, &roll)
+LOG_ADD(LOG_FLOAT, pitch, &pitch)
+LOG_ADD(LOG_FLOAT, yaw, &yaw)
+
+LOG_ADD(LOG_FLOAT, m1_out, &m1_out)
+LOG_ADD(LOG_FLOAT, m4_out, &m4_out)
+LOG_ADD(LOG_FLOAT, s1_out, &s1_out)
+LOG_ADD(LOG_FLOAT, s2_out, &s2_out)
+
+// LOG_ADD(LOG_FLOAT,Kpos_Px, &g_self.Kpos_P.x)
+// LOG_ADD(LOG_FLOAT,Kpos_Py, &g_self.Kpos_P.y)
+// LOG_ADD(LOG_FLOAT,Kpos_Pz, &g_self.Kpos_P.z)
+// LOG_ADD(LOG_FLOAT,Kpos_Dx, &g_self.Kpos_D.x)
+// LOG_ADD(LOG_FLOAT,Kpos_Dy, &g_self.Kpos_D.y)
+// LOG_ADD(LOG_FLOAT,Kpos_Dz, &g_self.Kpos_D.z)
+
+LOG_GROUP_STOP(ctrlLQR)
+
+PARAM_GROUP_START(ctrlLQRParam)
+PARAM_ADD(PARAM_FLOAT, setpoint_px, &setpoint_px)
+PARAM_ADD(PARAM_FLOAT, setpoint_py, &setpoint_py)
+PARAM_ADD(PARAM_FLOAT, setpoint_pz, &setpoint_pz)
+PARAM_GROUP_STOP(ctrlLQRParam)
