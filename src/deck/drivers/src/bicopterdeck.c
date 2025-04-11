@@ -203,7 +203,7 @@ void servo1SetAngle(double angle)
   // set CCR register
   // Duty% = CCR/ARR*100, so CCR = Duty%/100 * ARR
 
-  double pulse_length_us = 1500.0 + 12.5 * angle;
+  double pulse_length_us = 1500.0 + 10.85147 * angle;
   double pulse_length_s = pulse_length_us / 1000000;
   const uint32_t ccr_val = (uint32_t)(pulse_length_s * SERVO_PWM_PERIOD * SERVO_PWM_FREQUENCY_HZ + left_servo_trim);
   servo1Map->setCompare(servo1Map->tim, ccr_val);
@@ -219,7 +219,8 @@ void servo2SetAngle(double angle)
   // set CCR register
   // Duty% = CCR/ARR*100, so CCR = Duty%/100 * ARR
 
-  double pulse_length_us = 1500.0 + 12.5 * angle;
+  double pulse_length_us = 1500.0 + 10.85147 * angle; // found using encoder for system ID
+  // double pulse_length_us = 1500.0 + angle; // found using encoder for system ID, this is a linear approximation
   double pulse_length_s = pulse_length_us / 1000000;
   const uint32_t ccr_val = (uint32_t)(pulse_length_s * SERVO_PWM_PERIOD * SERVO_PWM_FREQUENCY_HZ + right_servo_trim);
   servo2Map->setCompare(servo2Map->tim, ccr_val);
@@ -237,6 +238,7 @@ static const DeckDriver bicopter_deck = {
 
   .usedPeriph = DECK_USING_TIMER4 | DECK_USING_TIMER3,
   .usedGpio = DECK_USING_IO_1 | DECK_USING_IO_2,
+  .requiredEstimator = StateEstimatorTypeKalman,
 
   .init = servoInit,
   .test = servoTest,

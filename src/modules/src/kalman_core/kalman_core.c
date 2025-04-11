@@ -150,6 +150,7 @@ void kalmanCoreDefaultParams(kalmanCoreParams_t* params)
   // PI --- facing negative X
   // 3 * PI / 2 --- facing negative Y
   params->initialYaw = 0.0;
+  // params->initialYaw = PI / 2;
 }
 
 void kalmanCoreInit(kalmanCoreData_t *this, const kalmanCoreParams_t *params, const uint32_t nowMs)

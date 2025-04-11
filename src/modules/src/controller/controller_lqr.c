@@ -7,29 +7,38 @@
 #include "power_distribution.h"
 #include "platform_defaults.h"
 
+#if (LQR_NUM_STATES == 12)
+
 static controllerLQR_t g_self = {
-  .k1 = {3.53111077e-03, -4.92211298e-02, -3.02485384e-20,
-    7.06552086e-01,  5.16808629e-02, -1.10221213e-01,
-    7.04655342e-03, -9.75340536e-02, -4.53728076e-20,
-    2.36722617e-01,  1.78872061e-02, -1.15099361e-01},
-  
-  .k2 = {-3.55151647e-03, -4.92205836e-02,  1.51243958e-20,
-    7.06544898e-01, -5.19758074e-02,  1.10219219e-01,
-    -7.08713751e-03, -9.75330014e-02,  4.53731874e-20,
-    2.36720521e-01, -1.79860848e-02,  1.15097368e-01},
+  .k1 = {0.08737846f, 0.00518231f, 0.00000000f,
+         -0.04022944f, 0.61655673f, -0.20388516f, 0.13644939f, 0.00831614f, -0.00000000f, -0.00721764f, 0.08684703f, -0.04707753f},
 
-  .k3 = {-6.01750738e-01,  1.20554783e-04,  7.05278161e-01,
-    -1.65228193e-03, -8.37037400e+00, -1.00174833e-01,
-    -1.17855575e+00,  2.35107424e-04,  8.54844175e-01,
-    -5.19023055e-04, -2.72183977e+00, -1.01031736e-01},
+  .k2 = {0.08737846f, -0.00518231f, 0.00000000f,
+         0.04022944f, 0.61655673f, 0.20388516f, 0.13644939f, -0.00831614f, 0.00000000f, 0.00721764f, 0.08684703f, 0.04707753f},
 
+  .k3 = {-0.00000000f, -0.57855870f, 2.02812104f,
+         3.63218699f, -0.00000000f, -0.08074192f, 0.00000000f, -0.87359421f, 2.26742355f, 0.39347115f, 0.00000000f, -0.01167539f},
 
-  .k4 = {6.01750738e-01, -1.20554783e-04,  7.05278161e-01,
-    1.65228193e-03,  8.37037400e+00,  1.00174833e-01,
-    1.17855575e+00, -2.35107424e-04,  8.54844175e-01,
-    5.19023055e-04,  2.72183977e+00,  1.01031736e-01}
-
+  .k4 = {0.00000000f, 0.57855870f, 2.02812104f,
+         -3.63218699f, 0.00000000f, 0.08074192f, 0.00000000f, 0.87359421f, 2.26742355f, -0.39347115f, 0.00000000f, 0.01167539f}
 };
+
+#else
+
+static controllerLQR_t g_self = {
+  .k1 = {0.02473765f, 0.45567463f, -0.13417558f,
+         0.02543499f, 0.46349532f, -0.13907192f},
+
+  .k2 = {-0.02473765f, 0.45567463f, 0.13417558f,
+         -0.02543499f, 0.46349532f, 0.13907192f},
+
+  .k3 = {-0.91057821f, -0.00000000f, -0.02926908f,
+         -0.92044463f, -0.00000000f, -0.03019150f},
+
+  .k4 = {0.91057821f, 0.00000000f, 0.02926908f,
+         0.92044463f, 0.00000000f, 0.03019150f}
+};
+#endif
 
 static inline struct vec vclampscl(struct vec value, float min, float max) {
   return mkvec(
@@ -65,9 +74,17 @@ static float m4_out;
 static float s1_out;
 static float s2_out;
 
+static float dx, dy, dz = 0.0f;
+
 static float setpoint_px = 0;
 static float setpoint_py = 0;
 static float setpoint_pz = 1.0;
+
+#define FILTER_LENGTH 10
+static float filter_wx[FILTER_LENGTH] = {0.0f};
+static float filter_wy[FILTER_LENGTH] = {0.0f};
+static float filter_wz[FILTER_LENGTH] = {0.0f};
+static int filter_count = 0;
 
 static int lqr_count = 0;
 void controllerLQR(controllerLQR_t* self, control_t *control, const setpoint_t *setpoint,
@@ -76,7 +93,29 @@ void controllerLQR(controllerLQR_t* self, control_t *control, const setpoint_t *
                                          const uint32_t tick)
 {
 
-  if (!RATE_DO_EXECUTE(RATE_1000_HZ, tick)) {
+  // updates at 1 kHz
+
+  // fill the circular buffer
+  filter_wx[filter_count] = sensors->gyro.x;
+  filter_wy[filter_count] = sensors->gyro.y;
+  filter_wz[filter_count] = sensors->gyro.z;
+  filter_count++;
+  filter_count %= FILTER_LENGTH;
+
+  float wx_avg = 0.0f;
+  float wy_avg = 0.0f;
+  float wz_avg = 0.0f;
+
+  for (int i = 0; i < FILTER_LENGTH; i++) {
+    wx_avg += filter_wx[i];
+    wy_avg += filter_wy[i];
+    wz_avg += filter_wz[i];
+  }
+  wx_avg /= (float) FILTER_LENGTH;
+  wy_avg /= (float) FILTER_LENGTH;
+  wz_avg /= (float) FILTER_LENGTH;
+
+  if (!RATE_DO_EXECUTE(RATE_50_HZ, tick)) {
     return;
   }
 
@@ -91,77 +130,98 @@ void controllerLQR(controllerLQR_t* self, control_t *control, const setpoint_t *
   // control->servoLeft_deg = 0;
   // control->servoRight_deg = 0;
 
+  #if (LQR_NUM_STATES == 12)
   float x[12] = {state->position.x, state->position.y, state->position.z,
-                 radians(state->attitude.pitch), radians(state->attitude.roll), radians(state->attitude.yaw),
+                 radians(state->attitude.roll), -radians(state->attitude.pitch), radians(state->attitude.yaw),
                  state->velocity.x, state->velocity.y, state->velocity.z,
-                 radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z)};
+                 radians(wx_avg), radians(wy_avg), radians(wz_avg)};
 
-  x[9] = 0;
-  x[10] = 0;
-  x[11] = 0;
+  // x[9] = 0;
+  // x[10] = 0;
+  // x[11] = 0;
 
-  // float xd[12] = {setpoint->position.x, setpoint->position.y, setpoint->position.z, 
-  //                 0, 0, 0, 
-  //                 0, 0, 0, 
-  //                 0, 0, 0};
+  float xd[12] = {setpoint_px, setpoint_py, setpoint_pz, 
+                  0, 0, 0, 
+                  0, 0, 0, 
+                  0, 0, 0};
 
-  float xd[12] = {setpoint_px, setpoint_py, setpoint_pz,
-    0, 0, 0, 
-    0, 0, 0, 
-    0, 0, 0};
+  dx = state->position.x - setpoint_px;
+  dy = state->position.y - setpoint_py;
+  dz = state->position.z - setpoint_pz;
+
+  #else
+
+  float x[6] = {
+    radians(state->attitude.roll), radians(state->attitude.pitch), radians(state->attitude.yaw),
+    radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z)
+  };
+  
+  // zero out the angular velocity for now
+  // x[3] = 0;
+  // x[4] = 0;
+  // x[5] = 0;
+
+  float xd[6] = {0,0,0, 0,0,0};
+
+  #endif
     
-  roll = state->attitude.roll;
-  pitch = state->attitude.pitch;
-  yaw = state->attitude.yaw;
-
-  wx = sensors->gyro.x;
-  wy = sensors->gyro.y;
-  wz = sensors->gyro.z;
-
   px = state->position.x;
   py = state->position.y;
   pz = state->position.z;
+
+  roll = state->attitude.roll;
+  pitch = -state->attitude.pitch;
+  yaw = state->attitude.yaw;
 
   vx = state->velocity.x;
   vy = state->velocity.y;
   vz = state->velocity.z;
 
+  wx = wx_avg;
+  wy = wy_avg;
+  wz = wz_avg;
+
   // do the matrix multiplication
   float tmp = 0;
-  for (int i = 0; i < 12; i++) {
-    tmp += -self->k4[i] * (x[i] - xd[i]);
+  for (int i = 0; i < LQR_NUM_STATES; i++) {
+    tmp += -self->k3[i] * (x[i] - xd[i]);
   }
-  control->motorLeft_N = tmp + 9.81f*0.320f/2.0f;
+  control->motorLeft_N = tmp + 9.81f*0.470f/2.0f;
   m1_out = control->motorLeft_N;
+  // control->motorLeft_N = 0.0; // disable motor output for now
   // control->motorLeft_N = 0.0;
   // control->motorLeft_N = 3.3/2;
 
   tmp = 0;
-  for (int i = 0; i < 12; i++) {
-    tmp += -self->k3[i] * (x[i] - xd[i]);
+  for (int i = 0; i < LQR_NUM_STATES; i++) {
+    tmp += -self->k4[i] * (x[i] - xd[i]);
   }
-  control->motorRight_N = tmp + 9.81f*0.320f/2.0f;
+  control->motorRight_N = tmp + 9.81f*0.470f/2.0f;
   m4_out = control->motorRight_N;
+  // control->motorRight_N = 0.0; // disable motor output for now
   // control->motorRight_N = 0.0f;
   // control->motorRight_N = 3.3/2;
 
   // ros2 launch crazyflie_examples launch.py script:=hello_world backend:=cflib
 
   tmp = 0;
-  for (int i = 0; i < 12; i++) {
-    tmp += -self->k2[i] * (x[i] - xd[i]);
-  }
-  // control->servoLeft_deg = (lqr_count / 10) % 90 - 45; // degrees(tmp);
-  control->servoLeft_deg = -degrees(tmp);
-  s1_out = -degrees(tmp);
-
-  tmp = 0;
-  for (int i = 0; i < 12; i++) {
+  for (int i = 0; i < LQR_NUM_STATES; i++) {
     tmp += -self->k1[i] * (x[i] - xd[i]);
   }
+  // control->servoLeft_deg = (lqr_count / 10) % 90 - 45; // degrees(tmp);
+  // control->servoLeft_deg = pitch;
+  control->servoLeft_deg = degrees(tmp);
+  s1_out = control->servoLeft_deg;
+
+
+  tmp = 0;
+  for (int i = 0; i < LQR_NUM_STATES; i++) {
+    tmp += -self->k2[i] * (x[i] - xd[i]);
+  }
   // control->servoRight_deg = (lqr_count / 10) % 90 - 45; // degrees(tmp);
-  control->servoRight_deg = degrees(tmp);
-  s2_out = degrees(tmp);
+  // control->servoRight_deg = -pitch;
+  control->servoRight_deg = -degrees(tmp);
+  s2_out = control->servoRight_deg;
 
   // struct vec dessnap = vzero();
   // Address inconsistency in firmware where we need to compute our own desired yaw angle
@@ -354,6 +414,12 @@ LOG_ADD(LOG_FLOAT, m1_out, &m1_out)
 LOG_ADD(LOG_FLOAT, m4_out, &m4_out)
 LOG_ADD(LOG_FLOAT, s1_out, &s1_out)
 LOG_ADD(LOG_FLOAT, s2_out, &s2_out)
+
+LOG_ADD(LOG_FLOAT, dx, &dx)
+LOG_ADD(LOG_FLOAT, dy, &dy)
+LOG_ADD(LOG_FLOAT, dz, &dz)
+
+LOG_ADD(LOG_INT32, count, &lqr_count)
 
 // LOG_ADD(LOG_FLOAT,Kpos_Px, &g_self.Kpos_P.x)
 // LOG_ADD(LOG_FLOAT,Kpos_Py, &g_self.Kpos_P.y)

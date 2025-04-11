@@ -50,6 +50,9 @@
 #include "health.h"
 #include "supervisor.h"
 
+// delete me 
+#include "bicopterdeck.h"
+
 #include "estimator.h"
 #include "usddeck.h"
 #include "quatcompress.h"
@@ -313,6 +316,7 @@ static void stabilizerTask(void* param)
 
   int hasReachedCriticalBatteryLevel = false;
 
+
   while(1) {
 
     // The sensor should unlock at 1kHz
@@ -361,17 +365,25 @@ static void stabilizerTask(void* param)
       // Critical for safety, be careful if you modify this code!
       // The supervisor will already set thrust to 0 in the setpoint if needed, but to be extra sure prevent motors from running.
       if (areMotorsAllowedToRun && !hasReachedCriticalBatteryLevel) {
+
+        // wait 3 seconds before allowing the propellers to spin
+        count++;
+        if (count < 3000) {
+          control.motorLeft_N = 0.0f;
+          control.motorRight_N = 0.0f;
+        }
+        
         controlMotors(&control);
       } else {
         motorsStop();
+        count = 0;
       }
 
       // print the thrust and battery voltage every 1 second
-      count++;
-      count %= 1000;
-      if (count == 0) {
-        DEBUG_PRINT("Fz: %0.4f Batt: %0.3f CMD: %0.2f\n", (double)control.Fz, (double)pmGetBatteryVoltage(), (double)motorPwm.motors.m1);
-      }
+      
+      // if (count == 0) {
+      //   DEBUG_PRINT("Fz: %0.4f Batt: %0.3f CMD: %0.2f\n", (double)control.Fz, (double)pmGetBatteryVoltage(), (double)motorPwm.motors.m1);
+      // }
 
       // Compute compressed log formats
       compressState();

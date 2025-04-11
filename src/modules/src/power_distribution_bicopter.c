@@ -172,17 +172,20 @@ static void powerDistributionWrench(const control_t *control, motors_thrust_unca
     motorThrustUncapped->motors.m4 = pwm4 * UINT16_MAX; // right motor
 }
 
+static float m1_pwm;
+static float m4_pwm;
+static float pwmAdjust = 1.0f;
 static void powerDistributionLQR(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
     // get the desired force to be produced by each motor
     float m1_force = control->motorLeft_N;
     float m4_force = control->motorRight_N;
 
     // set the servo angles in degrees
-    s_servo1_angle = control->servoLeft_deg;
-    s_servo2_angle = control->servoRight_deg;
+    // max = 15 deg, min = -15 deg
+    s_servo1_angle = fmax(-15, fmin(15, control->servoLeft_deg));
+    s_servo2_angle = fmax(-15, fmin(15, control->servoRight_deg));
     
     // given the desired force, get the DSHOT value to send to the motors.
-    // control->Fz is the force we want to produce by using both motors in Newtons in range [0, 6.3743225] (0 to 650g).
     // motorThrustUncapped->motors.m1 is in range [0, UINT16_MAX] which is sent as a DSHOT value
 
     // Force (N) = pwmToThrustA * Veff^2 + pwmToThrustB * Veff
@@ -199,8 +202,12 @@ static void powerDistributionLQR(const control_t *control, motors_thrust_uncappe
     float pwm1 = y1 / vBatt;
     float pwm4 = y4 / vBatt;
 
-    motorThrustUncapped->motors.m1 = pwm1 * UINT16_MAX; // left motor
-    motorThrustUncapped->motors.m4 = pwm4 * UINT16_MAX; // right motor
+    // log the pwm values for debugging (0 to 1)
+    m1_pwm = fmin(pwm1 * pwmAdjust, 1.0f);
+    m4_pwm = fmin(pwm4 * pwmAdjust, 1.0f);
+
+    motorThrustUncapped->motors.m1 = m1_pwm * UINT16_MAX; // left motor
+    motorThrustUncapped->motors.m4 = m4_pwm * UINT16_MAX; // right motor
 }
 
 void powerDistribution(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped)
@@ -254,6 +261,9 @@ bool powerDistributionCap(const motors_thrust_uncapped_t* motorThrustBatCompUnca
     {
         int32_t thrustCappedUpper = motorThrustBatCompUncapped->list[motorIndex] - reduction;
         motorPwm->list[motorIndex] = capMinThrust(thrustCappedUpper, powerDistributionGetIdleThrust());
+
+        // TODO: delete this
+        motorPwm->list[motorIndex] = motorThrustBatCompUncapped->list[motorIndex];
     }
 
     return isCapped;
@@ -285,6 +295,7 @@ PARAM_GROUP_START(powerDist)
  * common value is between 3000 - 6000.
  */
 PARAM_ADD_CORE(PARAM_UINT32 | PARAM_PERSISTENT, idleThrust, &idleThrust)
+PARAM_ADD(PARAM_FLOAT, pwmAdjust, &pwmAdjust)
 PARAM_GROUP_STOP(powerDist)
 
 /**
@@ -303,3 +314,8 @@ PARAM_GROUP_STOP(powerDist)
  */
 // PARAM_ADD(PARAM_FLOAT, armLength, &armLength)
 // PARAM_GROUP_STOP(quadSysId)
+
+LOG_GROUP_START(powerDist)
+LOG_ADD(LOG_FLOAT, m1_pwm, &m1_pwm)
+LOG_ADD(LOG_FLOAT, m4_pwm, &m4_pwm)
+LOG_GROUP_STOP(powerDist)
