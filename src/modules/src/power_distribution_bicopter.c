@@ -177,8 +177,13 @@ static float m4_pwm;
 static float pwmAdjust = 1.0f;
 static void powerDistributionLQR(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
     // get the desired force to be produced by each motor
+    #if defined(CONFIG_BICOPTER_NAME_MELONCOPTER)
+    float m1_force = control->motorRight_N;
+    float m4_force = control->motorLeft_N;
+    #elif defined(CONFIG_BICOPTER_NAME_REDCOPTER)
     float m1_force = control->motorLeft_N;
     float m4_force = control->motorRight_N;
+    #endif
 
     // set the servo angles in degrees
     // max = 15 deg, min = -15 deg

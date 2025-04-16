@@ -106,6 +106,22 @@ config BOLT11_BRUSHED
 
 endmenu
 
+menu "Bicopter Settings"
+
+choice
+    prompt "Bicopter Name"
+    default BICOPTER_NAME_REDCOPTER
+    
+config BICOPTER_NAME_REDCOPTER
+    bool "Build for Redcopter"
+
+config BICOPTER_NAME_MELONCOPTER
+    bool "Build for Meloncopter"
+
+endchoice
+
+endmenu
+
 menu "IMU configuration"
 
 choice

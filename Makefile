@@ -114,10 +114,19 @@ endif
 
 ifeq ($(CONFIG_PLATFORM_BICOPTER),y)
 PLATFORM = bicopter
+
+ifeq ($(CONFIG_BICOPTER_NAME_MELONCOPTER),y)
+BICOPTER_NAME = MELONCOPTER
+endif
+ifeq ($(CONFIG_BICOPTER_NAME_REDCOPTER),y)
+BICOPTER_NAME = REDCOPTER
+endif
+
 endif
 
 PLATFORM  ?= cf2
 PROG ?= $(PLATFORM)
+BICOPTER_NAME ?= none
 
 ifeq ($(CONFIG_DEBUG),y)
 ARCH_CFLAGS	+= -O0 -Wconversion
@@ -129,6 +138,7 @@ _all:
 
 all: $(PROG).hex $(PROG).bin
 	@echo "Build for the $(PLATFORM) platform!"
+	@echo "The bicopter name is set to $(BICOPTER_NAME)"
 	@$(PYTHON) $(srctree)/tools/make/versionTemplate.py --crazyflie-base $(srctree) --print-version
 	@$(PYTHON) $(srctree)/tools/make/size.py $(SIZE) $(PROG).elf $(MEM_SIZE_FLASH_K) $(MEM_SIZE_RAM_K) $(MEM_SIZE_CCM_K)
 

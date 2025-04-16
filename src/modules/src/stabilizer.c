@@ -367,11 +367,15 @@ static void stabilizerTask(void* param)
       if (areMotorsAllowedToRun && !hasReachedCriticalBatteryLevel) {
 
         // wait 3 seconds before allowing the propellers to spin
-        count++;
-        if (count < 3000) {
-          control.motorLeft_N = 0.0f;
-          control.motorRight_N = 0.0f;
-        }
+        // count++;
+        // if (count < 3000) {
+        //   control.motorLeft_N = 0.0f;
+        //   control.motorRight_N = 0.0f;
+        // }
+        // else {
+        //   control.motorLeft_N = 0.0f;
+        //   control.motorRight_N = 1.0f;
+        // }
         
         controlMotors(&control);
       } else {

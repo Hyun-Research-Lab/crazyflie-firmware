@@ -7,6 +7,8 @@
 #include "power_distribution.h"
 #include "platform_defaults.h"
 
+#include "debug.h"
+
 #if (LQR_NUM_STATES == 12)
 
 static controllerLQR_t g_self = {
@@ -80,6 +82,13 @@ static float setpoint_px = 0;
 static float setpoint_py = 0;
 static float setpoint_pz = 1.0;
 
+// for logging
+static float spx = 0.0;
+static float spy = 0.0;
+static float spz = 0.0;
+
+static float smz = 0.0;
+
 #define FILTER_LENGTH 10
 static float filter_wx[FILTER_LENGTH] = {0.0f};
 static float filter_wy[FILTER_LENGTH] = {0.0f};
@@ -121,6 +130,11 @@ void controllerLQR(controllerLQR_t* self, control_t *control, const setpoint_t *
 
   lqr_count ++;
 
+  // for now, log this value
+  spx = setpoint->position.x;
+  spy = setpoint->position.y;
+  spz = setpoint->position.z;
+
   // uint64_t startTime = usecTimestamp();
   // float dt = (float)(1.0f/1000.0f);
   control->controlMode = controlModeLQR;
@@ -139,11 +153,14 @@ void controllerLQR(controllerLQR_t* self, control_t *control, const setpoint_t *
   // x[9] = 0;
   // x[10] = 0;
   // x[11] = 0;
-
-  float xd[12] = {setpoint_px, setpoint_py, setpoint_pz, 
+  float xd[12] = {setpoint->position.x, setpoint->position.y, setpoint->position.z, 
                   0, 0, 0, 
                   0, 0, 0, 
                   0, 0, 0};
+  // float xd[12] = {setpoint_px, setpoint_py, setpoint_pz, 
+  //                 0, 0, 0, 
+  //                 0, 0, 0, 
+  //                 0, 0, 0};
 
   dx = state->position.x - setpoint_px;
   dy = state->position.y - setpoint_py;
@@ -180,6 +197,16 @@ void controllerLQR(controllerLQR_t* self, control_t *control, const setpoint_t *
   wx = wx_avg;
   wy = wy_avg;
   wz = wz_avg;
+
+  // for better landing
+  smz = setpoint->mode.z;
+  if (setpoint->mode.z == modeDisable) {
+    control->motorLeft_N = 0.0f;
+    control->motorRight_N = 0.0f;
+    control->servoLeft_deg = 0.0f;
+    control->servoRight_deg = 0.0f;
+    return;
+  }
 
   // do the matrix multiplication
   float tmp = 0;
@@ -418,6 +445,12 @@ LOG_ADD(LOG_FLOAT, s2_out, &s2_out)
 LOG_ADD(LOG_FLOAT, dx, &dx)
 LOG_ADD(LOG_FLOAT, dy, &dy)
 LOG_ADD(LOG_FLOAT, dz, &dz)
+
+LOG_ADD(LOG_FLOAT, spx, &spx)
+LOG_ADD(LOG_FLOAT, spy, &spy)
+LOG_ADD(LOG_FLOAT, spz, &spz)
+
+LOG_ADD(LOG_FLOAT, smz, &smz)
 
 LOG_ADD(LOG_INT32, count, &lqr_count)
 

@@ -42,9 +42,13 @@ extern const MotorPerifDef* servoMapRX2;
 extern const MotorPerifDef* servoMapTX2;
 extern const MotorPerifDef* servoMapMOSI;
 
-
-static int16_t right_servo_trim = 26;
-static int16_t left_servo_trim = 10;
+#if defined(CONFIG_BICOPTER_NAME_MELONCOPTER)
+static int16_t left_servo_trim = 44;
+static int16_t right_servo_trim = 12;
+#elif defined(CONFIG_BICOPTER_NAME_REDCOPTER)
+static int16_t left_servo_trim = 20;
+static int16_t right_servo_trim = 9;
+#endif
 
 double s_servo1_angle = 0; // LEFT servo in Degrees
 double s_servo2_angle = 0; // RIGHT servo in Degrees
