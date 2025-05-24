@@ -242,17 +242,44 @@ void p2pCB(P2PPacket* packet) {
     b1_d = vbasis(0);
   }
 
-  self->ex_lf = vsub(re, re_d);
-  self->ev_lf = vsub(re_dot, re_d_dot);
-  self->ei_lf = vadd(self->ei_lf, vscl(1.0f/NETWORK_RATE, self->ex_lf));
-  self->ei_lf = vclampscl2(self->ei_lf, -self->sigma_lf, self->sigma_lf);
+  // // Old controller
+  // self->ex_lf = vsub(re, re_d);
+  // self->ev_lf = vsub(re_dot, re_d_dot);
+  // self->ei_lf = vadd(self->ei_lf, vscl(1.0f/NETWORK_RATE, self->ex_lf));
+  // self->ei_lf = vclampscl2(self->ei_lf, -self->sigma_lf, self->sigma_lf);
 
-  struct mat33 P = msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
-  struct vec u = mvmul(P, vadd4(
-    vscl(-self->kx_lf, self->ex_lf),
-    vscl(-self->kv_lf, self->ev_lf),
-    vscl(-self->ki_lf, self->ei_lf),
-    re_d_ddot));
+  // struct mat33 P = msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
+  // struct vec u = mvmul(P, vadd4(
+  //   vscl(-self->kx_lf, self->ex_lf),
+  //   vscl(-self->kv_lf, self->ev_lf),
+  //   vscl(-self->ki_lf, self->ei_lf),
+  //   re_d_ddot));
+
+  // New controller
+  float beta = 2.7f;
+  int n = 3;
+
+  struct vec t1 = vnormalize(re);
+  struct vec t2 = vnormalize(vcross(vbasis(2), t1));
+  struct vec t3 = vcross(t1, t2);
+
+  struct vec t1_d = vnormalize(re_d);
+  struct vec t2_d = vnormalize(vcross(vbasis(2), t1_d));
+  struct vec t3_d = vcross(t1_d, t2_d);
+
+  float eR[2];
+  eR[0] = vmag(re)*atan2f(vdot(t2_d, t1), vdot(vcross(t2_d, t3), t1));
+  eR[1] = vmag(re)*atan2f(vdot(t3_d, t1), vdot(vcross(t2, t3_d), t1));
+  
+  float ev[2];
+  ev[0] = vdot(t2, re_dot) - vdot(t2_d, re_d_dot);
+  ev[1] = vdot(t3, re_dot) - vdot(t3_d, re_d_dot);
+  float ev_norm = sqrtf(ev[0]*ev[0] + ev[1]*ev[1]);
+
+  float u_m[2];
+  u_m[0] = -self->kx_lf*eR[0] - self->kv_lf*ev[0] - beta*(n-1)*ev[0]*ev_norm + vdot(t2_d, re_d_ddot);
+  u_m[1] = -self->kx_lf*eR[1] - self->kv_lf*ev[1] - beta*(n-1)*ev[1]*ev_norm + vdot(t3_d, re_d_ddot);
+  struct vec u = vadd(vscl(u_m[0], t2), vscl(u_m[1], t3));
 
   self->F_d_bar = vscl(self->m, vadd(vdiv(F_d_l_bar, m_l), u));
   struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
@@ -305,7 +332,7 @@ void appMain() {
     
   while (1) {
     vTaskDelay(M2T(1000/NETWORK_RATE));
-    if (self->node == 0) {
+    if (self->node == 0 && vmag(self->F_d_bar) > 1e-6f) {
       t += 1.0f/NETWORK_RATE;
     }
 
