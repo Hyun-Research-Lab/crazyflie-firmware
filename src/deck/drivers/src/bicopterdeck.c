@@ -46,8 +46,8 @@ extern const MotorPerifDef* servoMapMOSI;
 static int16_t left_servo_trim = 44;
 static int16_t right_servo_trim = 12;
 #elif defined(CONFIG_BICOPTER_NAME_REDCOPTER)
-static int16_t left_servo_trim = 20;
-static int16_t right_servo_trim = 9;
+static int16_t left_servo_trim = 21; // increasing moves the propeller towards positive Y
+static int16_t right_servo_trim = 6; // decreasing moves the propeller towards positive Y
 #endif
 
 double s_servo1_angle = 0; // LEFT servo in Degrees
