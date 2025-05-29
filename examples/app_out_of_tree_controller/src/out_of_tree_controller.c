@@ -125,8 +125,6 @@ typedef struct controllerLee2_s {
   struct vec ex_lf;
   struct vec ev_lf;
   struct vec ei_lf;
-
-  float test_f;
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
@@ -212,6 +210,7 @@ void p2pCB(P2PPacket* packet) {
   // Where the magic happens
   struct vec re = vsub(self->x, x_l);
   struct vec re_dot = vsub(self->v, v_l);
+  float l = vmag(re);//0.3716;
 
   float theta =      M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
   float theta_dot =  M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
@@ -223,39 +222,46 @@ void p2pCB(P2PPacket* packet) {
   struct vec re_d_ddot;
   struct vec b1_d;
   if (self->node == 1) {
-    // re_d = vscl(vmag(re), vnormalize(mkvec(1, 0, 0)));
-    // re_d_dot = vzero();
-    // re_d_ddot = vzero();
-    re_d =      vscl(vmag(re),                          mkvec(cosf(theta),  0, sinf(theta)));
-    re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(-sinf(theta), 0, cosf(theta)));
-    re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
-                              vscl(vmag(re)*theta_ddot, mkvec(-sinf(theta), 0, cosf(theta))));
+    // re_d = vscl(l, mkvec(0, cosf(theta), sinf(theta)));
+    re_d =      vscl(l,                          mkvec(0, cosf(theta),  sinf(theta)));
+    re_d_dot =  vscl(l*theta_dot,                mkvec(0, -sinf(theta), cosf(theta)));
+    re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, -cosf(theta), -sinf(theta))),
+                              vscl(l*theta_ddot, mkvec(0, -sinf(theta), cosf(theta))));
     b1_d = vbasis(0);
   } else if (self->node == 2) {
-    // re_d = vscl(vmag(re), vnormalize(mkvec(-1, 0, 0)));
-    // re_d_dot = vzero();
-    // re_d_ddot = vzero();
-    re_d =      vscl(vmag(re),                          mkvec(-cosf(theta), 0, sinf(theta)));
-    re_d_dot =  vscl(vmag(re)*theta_dot,                mkvec(sinf(theta),  0, cosf(theta)));
-    re_d_ddot = vadd(vscl(vmag(re)*theta_dot*theta_dot, mkvec(cosf(theta),  0, -sinf(theta))),
-                              vscl(vmag(re)*theta_ddot, mkvec(sinf(theta),  0, cosf(theta))));
+    // re_d = vscl(l, mkvec(0, -cosf(theta), sinf(theta)));
+    re_d =      vscl(l,                          mkvec(0, -cosf(theta), sinf(theta)));
+    re_d_dot =  vscl(l*theta_dot,                mkvec(0, sinf(theta),  cosf(theta)));
+    re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, cosf(theta),  -sinf(theta))),
+                              vscl(l*theta_ddot, mkvec(0, sinf(theta),  cosf(theta))));
     b1_d = vbasis(0);
   }
+  // re_d_dot = vzero();
+  // re_d_ddot = vzero();
 
-  // // Old controller
-  // self->ex_lf = vsub(re, re_d);
-  // self->ev_lf = vsub(re_dot, re_d_dot);
-  // self->ei_lf = vadd(self->ei_lf, vscl(1.0f/NETWORK_RATE, self->ex_lf));
-  // self->ei_lf = vclampscl2(self->ei_lf, -self->sigma_lf, self->sigma_lf);
+  // theta = floorf(t/2.0f)*M_PI_F/4.0f;
+  // re_d = vscl(l, mkvec(cosf(theta), sinf(theta), 0));
+  // re_d = vscl(l, vbasis(1));
+  // re_d_dot = vzero();
+  // re_d_ddot = vzero();
+  // b1_d = vbasis(0);
 
-  // struct mat33 P = msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
-  // struct vec u = mvmul(P, vadd4(
-  //   vscl(-self->kx_lf, self->ex_lf),
-  //   vscl(-self->kv_lf, self->ev_lf),
-  //   vscl(-self->ki_lf, self->ei_lf),
-  //   re_d_ddot));
+#define OLD_CONTROLLER
+// #define NEW_CONTROLLER
 
-  // New controller
+#ifdef OLD_CONTROLLER
+  self->ex_lf = vsub(re, re_d);
+  self->ev_lf = vsub(re_dot, re_d_dot);
+  self->ei_lf = vadd(self->ei_lf, vscl(1.0f/NETWORK_RATE, self->ex_lf));
+  self->ei_lf = vclampscl2(self->ei_lf, -self->sigma_lf, self->sigma_lf);
+
+  struct mat33 P = meye(); //msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
+  struct vec u = mvmul(P, vadd4(
+    vscl(-self->kx_lf, self->ex_lf),
+    vscl(-self->kv_lf, self->ev_lf),
+    vscl(-self->ki_lf, self->ei_lf),
+    re_d_ddot));
+#elif defined(NEW_CONTROLLER)
   float beta = 2.7f;
   int n = 3;
 
@@ -268,8 +274,8 @@ void p2pCB(P2PPacket* packet) {
   struct vec t3_d = vcross(t1_d, t2_d);
 
   float eR[2];
-  eR[0] = vmag(re)*atan2f(vdot(t2_d, t1), vdot(vcross(t2_d, t3), t1));
-  eR[1] = vmag(re)*atan2f(vdot(t3_d, t1), vdot(vcross(t2, t3_d), t1));
+  eR[0] = l*atan2f(vdot(t2_d, t1), vdot(vcross(t2_d, t3), t1));
+  eR[1] = l*atan2f(vdot(t3_d, t1), vdot(vcross(t2, t3_d), t1));
   
   float ev[2];
   ev[0] = vdot(t2, re_dot) - vdot(t2_d, re_d_dot);
@@ -280,6 +286,7 @@ void p2pCB(P2PPacket* packet) {
   u_m[0] = -self->kx_lf*eR[0] - self->kv_lf*ev[0] - beta*(n-1)*ev[0]*ev_norm + vdot(t2_d, re_d_ddot);
   u_m[1] = -self->kx_lf*eR[1] - self->kv_lf*ev[1] - beta*(n-1)*ev[1]*ev_norm + vdot(t3_d, re_d_ddot);
   struct vec u = vadd(vscl(u_m[0], t2), vscl(u_m[1], t3));
+#endif
 
   self->F_d_bar = vscl(self->m, vadd(vdiv(F_d_l_bar, m_l), u));
   struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
@@ -287,7 +294,6 @@ void p2pCB(P2PPacket* packet) {
 
   // Send F_d to the controller
   float f = vdot(F_d, mvmul(self->R, vbasis(2)));
-  self->test_f = vmag(re);
   float thrust = f * UINT16_MAX / powerDistributionGetMaxThrust();
 
   struct vec b3_d = vnormalize(F_d);
@@ -448,8 +454,6 @@ void controllerOutOfTreeInit() {
   self->ex_lf = vzero();
   self->ev_lf = vzero();
   self->ei_lf = vzero();
-
-  self->test_f = 0;
 }
 
 bool controllerOutOfTreeTest() {
@@ -664,8 +668,6 @@ LOG_ADD(LOG_FLOAT, W_d_dot3, &g_self2.W_d_dot.z)
 LOG_ADD(LOG_FLOAT, F_d1, &g_self2.F_d_bar.x)
 LOG_ADD(LOG_FLOAT, F_d2, &g_self2.F_d_bar.y)
 LOG_ADD(LOG_FLOAT, F_d3, &g_self2.F_d_bar.z)
-
-LOG_ADD(LOG_FLOAT, test_f, &g_self2.test_f)
 
 LOG_ADD(LOG_FLOAT, ex_lf1, &g_self2.ex_lf.x)
 LOG_ADD(LOG_FLOAT, ex_lf2, &g_self2.ex_lf.y)
