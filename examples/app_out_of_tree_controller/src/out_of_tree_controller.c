@@ -125,6 +125,12 @@ typedef struct controllerLee2_s {
   struct vec ex_lf;
   struct vec ev_lf;
   struct vec ei_lf;
+
+  struct vec term0;
+  struct vec term1;
+  struct vec term2;
+  struct vec term3;
+  struct vec term4;
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
@@ -222,22 +228,23 @@ void p2pCB(P2PPacket* packet) {
   struct vec re_d_ddot;
   struct vec b1_d;
   if (self->node == 1) {
-    // re_d = vscl(l, mkvec(0, cosf(theta), sinf(theta)));
+    // re_d = mkvec(0, l, 0);
+    // re_d_dot = vzero();
+    // re_d_ddot = vzero();
     re_d =      vscl(l,                          mkvec(0, cosf(theta),  sinf(theta)));
     re_d_dot =  vscl(l*theta_dot,                mkvec(0, -sinf(theta), cosf(theta)));
     re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, -cosf(theta), -sinf(theta))),
                               vscl(l*theta_ddot, mkvec(0, -sinf(theta), cosf(theta))));
-    b1_d = vbasis(0);
   } else if (self->node == 2) {
-    // re_d = vscl(l, mkvec(0, -cosf(theta), sinf(theta)));
-    re_d =      vscl(l,                          mkvec(0, -cosf(theta), sinf(theta)));
-    re_d_dot =  vscl(l*theta_dot,                mkvec(0, sinf(theta),  cosf(theta)));
-    re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, cosf(theta),  -sinf(theta))),
-                              vscl(l*theta_ddot, mkvec(0, sinf(theta),  cosf(theta))));
-    b1_d = vbasis(0);
+    re_d = mkvec(0, l, 0);
+    re_d_dot = vzero();
+    re_d_ddot = vzero();
+    // re_d =      vscl(l,                          mkvec(0, -cosf(theta), sinf(theta)));
+    // re_d_dot =  vscl(l*theta_dot,                mkvec(0, sinf(theta),  cosf(theta)));
+    // re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, cosf(theta),  -sinf(theta))),
+    //                           vscl(l*theta_ddot, mkvec(0, sinf(theta),  cosf(theta))));
   }
-  // re_d_dot = vzero();
-  // re_d_ddot = vzero();
+  b1_d = vbasis(0);
 
   // theta = floorf(t/2.0f)*M_PI_F/4.0f;
   // re_d = vscl(l, mkvec(cosf(theta), sinf(theta), 0));
@@ -246,47 +253,48 @@ void p2pCB(P2PPacket* packet) {
   // re_d_ddot = vzero();
   // b1_d = vbasis(0);
 
-#define OLD_CONTROLLER
-// #define NEW_CONTROLLER
+// #define PID_CONTROLLER
+#define GEOMETRIC_CONTROLLER
 
-#ifdef OLD_CONTROLLER
   self->ex_lf = vsub(re, re_d);
   self->ev_lf = vsub(re_dot, re_d_dot);
   self->ei_lf = vadd(self->ei_lf, vscl(1.0f/NETWORK_RATE, self->ex_lf));
   self->ei_lf = vclampscl2(self->ei_lf, -self->sigma_lf, self->sigma_lf);
-
-  struct mat33 P = meye(); //msub(meye(), mscl(1.0f/vmag2(re), vouter(re, re)));
-  struct vec u = mvmul(P, vadd4(
+  
+  struct vec pid = vadd4(
     vscl(-self->kx_lf, self->ex_lf),
     vscl(-self->kv_lf, self->ev_lf),
     vscl(-self->ki_lf, self->ei_lf),
-    re_d_ddot));
-#elif defined(NEW_CONTROLLER)
+    re_d_ddot);
+
+#ifdef PID_CONTROLLER
+  struct mat33 P = msub(meye(), mscl(1.0f/(l*l), vouter(re, re)));
+  struct vec u = mvmul(P, pid);
+#elif defined(GEOMETRIC_CONTROLLER)
   float beta = 2.7f;
   int n = 3;
 
   struct vec t1 = vnormalize(re);
-  struct vec t2 = vnormalize(vcross(vbasis(2), t1));
-  struct vec t3 = vcross(t1, t2);
+  struct vec t3 = vnormalize(vcross(re, re_d));
+  struct vec t2 = vcross(t3, t1);
 
   struct vec t1_d = vnormalize(re_d);
-  struct vec t2_d = vnormalize(vcross(vbasis(2), t1_d));
-  struct vec t3_d = vcross(t1_d, t2_d);
+  struct vec t3_d = t3;
+  struct vec t2_d = vcross(t3_d, t1_d);
 
-  float eR[2];
-  eR[0] = l*atan2f(vdot(t2_d, t1), vdot(vcross(t2_d, t3), t1));
-  eR[1] = l*atan2f(vdot(t3_d, t1), vdot(vcross(t2, t3_d), t1));
+  float eR = l*atan2f(vdot(t1, t2_d), vdot(t1, t1_d));
+  float ev1 = vdot(t2, re_dot) - vdot(t2_d, re_d_dot);
+  float ev2 = vdot(t3, re_dot) - vdot(t3_d, re_d_dot);
+  float ev_norm = sqrtf(ev1*ev1 + ev2*ev2);
   
-  float ev[2];
-  ev[0] = vdot(t2, re_dot) - vdot(t2_d, re_d_dot);
-  ev[1] = vdot(t3, re_dot) - vdot(t3_d, re_d_dot);
-  float ev_norm = sqrtf(ev[0]*ev[0] + ev[1]*ev[1]);
-
-  float u_m[2];
-  u_m[0] = -self->kx_lf*eR[0] - self->kv_lf*ev[0] - beta*(n-1)*ev[0]*ev_norm + vdot(t2_d, re_d_ddot);
-  u_m[1] = -self->kx_lf*eR[1] - self->kv_lf*ev[1] - beta*(n-1)*ev[1]*ev_norm + vdot(t3_d, re_d_ddot);
-  struct vec u = vadd(vscl(u_m[0], t2), vscl(u_m[1], t3));
+  float u_m1 = -self->kx_lf*eR - self->kv_lf*ev1 - beta*(n-1)*ev1*ev_norm + vdot(t2_d, re_d_ddot);
+  float u_m2 =                  -self->kv_lf*ev2 - beta*(n-1)*ev2*ev_norm + vdot(t3_d, re_d_ddot);
+  struct vec u = vadd(vscl(u_m1, t2), vscl(u_m2, t3));
 #endif
+
+  // Add a robustness term
+  struct mat33 P2 = mscl(1.0f/(l*l), vouter(re, re));
+  u = vadd(u, mvmul(P2, pid));
 
   self->F_d_bar = vscl(self->m, vadd(vdiv(F_d_l_bar, m_l), u));
   struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
@@ -454,6 +462,12 @@ void controllerOutOfTreeInit() {
   self->ex_lf = vzero();
   self->ev_lf = vzero();
   self->ei_lf = vzero();
+
+  self->term0 = vzero();
+  self->term1 = vzero();
+  self->term2 = vzero();
+  self->term3 = vzero();
+  self->term4 = vzero();
 }
 
 bool controllerOutOfTreeTest() {
@@ -630,57 +644,77 @@ PARAM_GROUP_STOP(ctrlLee2)
 
 LOG_GROUP_START(ctrlLee2)
 
-// Wrench
-LOG_ADD(LOG_FLOAT, f, &g_self2.f)
-LOG_ADD(LOG_FLOAT, M1, &g_self2.M.x)
-LOG_ADD(LOG_FLOAT, M2, &g_self2.M.y)
-LOG_ADD(LOG_FLOAT, M3, &g_self2.M.z)
+// // Wrench
+// LOG_ADD(LOG_FLOAT, f, &g_self2.f)
+// LOG_ADD(LOG_FLOAT, M1, &g_self2.M.x)
+// LOG_ADD(LOG_FLOAT, M2, &g_self2.M.y)
+// LOG_ADD(LOG_FLOAT, M3, &g_self2.M.z)
 
-// Errors
-LOG_ADD(LOG_FLOAT, ex1, &g_self2.ex.x)
-LOG_ADD(LOG_FLOAT, ex2, &g_self2.ex.y)
-LOG_ADD(LOG_FLOAT, ex3, &g_self2.ex.z)
+// // Errors
+// LOG_ADD(LOG_FLOAT, ex1, &g_self2.ex.x)
+// LOG_ADD(LOG_FLOAT, ex2, &g_self2.ex.y)
+// LOG_ADD(LOG_FLOAT, ex3, &g_self2.ex.z)
 
-LOG_ADD(LOG_FLOAT, ev1, &g_self2.ev.x)
-LOG_ADD(LOG_FLOAT, ev2, &g_self2.ev.y)
-LOG_ADD(LOG_FLOAT, ev3, &g_self2.ev.z)
+// LOG_ADD(LOG_FLOAT, ev1, &g_self2.ev.x)
+// LOG_ADD(LOG_FLOAT, ev2, &g_self2.ev.y)
+// LOG_ADD(LOG_FLOAT, ev3, &g_self2.ev.z)
 
-LOG_ADD(LOG_FLOAT, eR1, &g_self2.eR.x)
-LOG_ADD(LOG_FLOAT, eR2, &g_self2.eR.y)
-LOG_ADD(LOG_FLOAT, eR3, &g_self2.eR.z)
+// LOG_ADD(LOG_FLOAT, eR1, &g_self2.eR.x)
+// LOG_ADD(LOG_FLOAT, eR2, &g_self2.eR.y)
+// LOG_ADD(LOG_FLOAT, eR3, &g_self2.eR.z)
 
-LOG_ADD(LOG_FLOAT, eW1, &g_self2.eW.x)
-LOG_ADD(LOG_FLOAT, eW2, &g_self2.eW.y)
-LOG_ADD(LOG_FLOAT, eW3, &g_self2.eW.z)
+// LOG_ADD(LOG_FLOAT, eW1, &g_self2.eW.x)
+// LOG_ADD(LOG_FLOAT, eW2, &g_self2.eW.y)
+// LOG_ADD(LOG_FLOAT, eW3, &g_self2.eW.z)
 
-// LOG_ADD(LOG_FLOAT, eI1, &g_self2.eI.x)
-// LOG_ADD(LOG_FLOAT, eI2, &g_self2.eI.y)
-// LOG_ADD(LOG_FLOAT, eI3, &g_self2.eI.z)
+// // LOG_ADD(LOG_FLOAT, eI1, &g_self2.eI.x)
+// // LOG_ADD(LOG_FLOAT, eI2, &g_self2.eI.y)
+// // LOG_ADD(LOG_FLOAT, eI3, &g_self2.eI.z)
 
-LOG_ADD(LOG_FLOAT, W_d1, &g_self2.W_d.x)
-LOG_ADD(LOG_FLOAT, W_d2, &g_self2.W_d.y)
-LOG_ADD(LOG_FLOAT, W_d3, &g_self2.W_d.z)
+// LOG_ADD(LOG_FLOAT, W_d1, &g_self2.W_d.x)
+// LOG_ADD(LOG_FLOAT, W_d2, &g_self2.W_d.y)
+// LOG_ADD(LOG_FLOAT, W_d3, &g_self2.W_d.z)
 
-LOG_ADD(LOG_FLOAT, W_d_dot1, &g_self2.W_d_dot.x)
-LOG_ADD(LOG_FLOAT, W_d_dot2, &g_self2.W_d_dot.y)
-LOG_ADD(LOG_FLOAT, W_d_dot3, &g_self2.W_d_dot.z)
+// LOG_ADD(LOG_FLOAT, W_d_dot1, &g_self2.W_d_dot.x)
+// LOG_ADD(LOG_FLOAT, W_d_dot2, &g_self2.W_d_dot.y)
+// LOG_ADD(LOG_FLOAT, W_d_dot3, &g_self2.W_d_dot.z)
 
-LOG_ADD(LOG_FLOAT, F_d1, &g_self2.F_d_bar.x)
-LOG_ADD(LOG_FLOAT, F_d2, &g_self2.F_d_bar.y)
-LOG_ADD(LOG_FLOAT, F_d3, &g_self2.F_d_bar.z)
+// LOG_ADD(LOG_FLOAT, F_d1, &g_self2.F_d_bar.x)
+// LOG_ADD(LOG_FLOAT, F_d2, &g_self2.F_d_bar.y)
+// LOG_ADD(LOG_FLOAT, F_d3, &g_self2.F_d_bar.z)
 
-LOG_ADD(LOG_FLOAT, ex_lf1, &g_self2.ex_lf.x)
-LOG_ADD(LOG_FLOAT, ex_lf2, &g_self2.ex_lf.y)
-LOG_ADD(LOG_FLOAT, ex_lf3, &g_self2.ex_lf.z)
+// LOG_ADD(LOG_FLOAT, ex_lf1, &g_self2.ex_lf.x)
+// LOG_ADD(LOG_FLOAT, ex_lf2, &g_self2.ex_lf.y)
+// LOG_ADD(LOG_FLOAT, ex_lf3, &g_self2.ex_lf.z)
 
-LOG_ADD(LOG_FLOAT, ev_lf1, &g_self2.ev_lf.x)
-LOG_ADD(LOG_FLOAT, ev_lf2, &g_self2.ev_lf.y)
-LOG_ADD(LOG_FLOAT, ev_lf3, &g_self2.ev_lf.z)
+// LOG_ADD(LOG_FLOAT, ev_lf1, &g_self2.ev_lf.x)
+// LOG_ADD(LOG_FLOAT, ev_lf2, &g_self2.ev_lf.y)
+// LOG_ADD(LOG_FLOAT, ev_lf3, &g_self2.ev_lf.z)
 
-LOG_ADD(LOG_FLOAT, ei_lf1, &g_self2.ei_lf.x)
-LOG_ADD(LOG_FLOAT, ei_lf2, &g_self2.ei_lf.y)
-LOG_ADD(LOG_FLOAT, ei_lf3, &g_self2.ei_lf.z)
+// LOG_ADD(LOG_FLOAT, ei_lf1, &g_self2.ei_lf.x)
+// LOG_ADD(LOG_FLOAT, ei_lf2, &g_self2.ei_lf.y)
+// LOG_ADD(LOG_FLOAT, ei_lf3, &g_self2.ei_lf.z)
 
-LOG_ADD(LOG_FLOAT, t, &t)
+// LOG_ADD(LOG_FLOAT, t, &t)
+
+LOG_ADD(LOG_FLOAT, term0_1, &g_self2.term0.x)
+LOG_ADD(LOG_FLOAT, term0_2, &g_self2.term0.y)
+LOG_ADD(LOG_FLOAT, term0_3, &g_self2.term0.z)
+
+LOG_ADD(LOG_FLOAT, term1_1, &g_self2.term1.x)
+LOG_ADD(LOG_FLOAT, term1_2, &g_self2.term1.y)
+LOG_ADD(LOG_FLOAT, term1_3, &g_self2.term1.z)
+
+LOG_ADD(LOG_FLOAT, term2_1, &g_self2.term2.x)
+LOG_ADD(LOG_FLOAT, term2_2, &g_self2.term2.y)
+LOG_ADD(LOG_FLOAT, term2_3, &g_self2.term2.z)
+
+LOG_ADD(LOG_FLOAT, term3_1, &g_self2.term3.x)
+LOG_ADD(LOG_FLOAT, term3_2, &g_self2.term3.y)
+LOG_ADD(LOG_FLOAT, term3_3, &g_self2.term3.z)
+
+LOG_ADD(LOG_FLOAT, term4_1, &g_self2.term4.x)
+LOG_ADD(LOG_FLOAT, term4_2, &g_self2.term4.y)
+LOG_ADD(LOG_FLOAT, term4_3, &g_self2.term4.z)
 
 LOG_GROUP_STOP(ctrlLee2)
