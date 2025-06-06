@@ -120,6 +120,32 @@ config BICOPTER_NAME_MELONCOPTER
 
 endchoice
 
+choice
+    prompt "Propeller Type"
+    default PROPELLER_WINDANCER
+
+config PROPELLER_WINDANCER
+    bool "Windancer 4032-3 (smaller)"
+    help
+        Use the Gemfan Windancer 4032-3 propeller.
+
+config PROPELLER_HURRICANE
+    bool "Hurricane 5236-3 (larger)"
+    help
+        Use the Gemfan Hurricane 5236-3 propeller.
+
+endchoice
+
+choice 
+    prompt "Battery Type"
+    default BATTERY_550
+
+config BATTERY_550
+    bool "550mAh 4S LiPo"
+
+config BATTERY_1550
+    bool "1550mAh 4S LiPo"
+endchoice
 endmenu
 
 menu "IMU configuration"

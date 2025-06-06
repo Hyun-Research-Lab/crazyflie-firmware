@@ -36,8 +36,18 @@
 #  define DEFAULT_IDLE_THRUST CONFIG_MOTORS_DEFAULT_IDLE_THRUST
 #endif
 
+#if defined(CONFIG_PROPELLER_WINDANCER) && defined(CONFIG_BATTERY_550)
 static float pwmToThrustA = 0.04415f;
 static float pwmToThrustB = 0.04359f;
+#elif defined(CONFIG_PROPELLER_HURRICANE) && defined(CONFIG_BATTERY_550)
+static float pwmToThrustA = 0.06261942f;
+static float pwmToThrustB = 0.22547572f;
+#elif defined(CONFIG_PROPELLER_HURRICANE) && defined(CONFIG_BATTERY_1550)
+static float pwmToThrustA = 0.05163731f;
+static float pwmToThrustB = 0.32107592f;
+#else
+#error "Unsupported propeller and battery configuration"
+#endif
 
 static uint32_t idleThrust = DEFAULT_IDLE_THRUST;
 
@@ -207,7 +217,8 @@ static void powerDistributionLQR(const control_t *control, motors_thrust_uncappe
     float pwm1 = y1 / vBatt;
     float pwm4 = y4 / vBatt;
 
-    // log the pwm values for debugging (0 to 1)
+    // maximum pwm value is 1.0
+    // pwmAdjust is a parameter we can set to scale up or down all thrusts
     m1_pwm = fmin(pwm1 * pwmAdjust, 1.0f);
     m4_pwm = fmin(pwm4 * pwmAdjust, 1.0f);
 
