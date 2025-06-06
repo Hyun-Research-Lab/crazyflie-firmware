@@ -37,7 +37,7 @@ void controllerPassthrough(control_t *control, const setpoint_t *setpoint,
   cmd_pitch = control->pitch;
 
   // if (passthroughCount % 1000 == 0) {
-  //   DEBUG_PRINT("controllerPassthrough: %f\n", (double) cmd_thrust);
+  //   DEBUG_PRINT("setpoint->thrust: %f\n", (double) setpoint->thrust);
   // }
   // passthroughCount++;
 }
