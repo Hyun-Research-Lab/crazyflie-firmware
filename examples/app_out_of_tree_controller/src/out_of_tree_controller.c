@@ -131,6 +131,8 @@ typedef struct controllerLee2_s {
   struct vec term2;
   struct vec term3;
   struct vec term4;
+
+  uint8_t trajectory;
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
@@ -155,6 +157,8 @@ static controllerLee2_t g_self2 = {
   .kv_lf = 10.0,
   .ki_lf = 4.0,
   .sigma_lf = 1.0,
+
+  .trajectory = 0,
 };
 
 static inline struct mat33 vouter(struct vec a, struct vec b) {
@@ -226,25 +230,64 @@ void p2pCB(P2PPacket* packet) {
   struct vec re_d;
   struct vec re_d_dot;
   struct vec re_d_ddot;
-  struct vec b1_d;
-  if (self->node == 1) {
-    // re_d = mkvec(0, l, 0);
-    // re_d_dot = vzero();
-    // re_d_ddot = vzero();
-    re_d =      vscl(l,                          mkvec(0, cosf(theta),  sinf(theta)));
-    re_d_dot =  vscl(l*theta_dot,                mkvec(0, -sinf(theta), cosf(theta)));
-    re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, -cosf(theta), -sinf(theta))),
-                              vscl(l*theta_ddot, mkvec(0, -sinf(theta), cosf(theta))));
-  } else if (self->node == 2) {
-    re_d = mkvec(0, l, 0);
-    re_d_dot = vzero();
-    re_d_ddot = vzero();
-    // re_d =      vscl(l,                          mkvec(0, -cosf(theta), sinf(theta)));
-    // re_d_dot =  vscl(l*theta_dot,                mkvec(0, sinf(theta),  cosf(theta)));
-    // re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, cosf(theta),  -sinf(theta))),
-    //                           vscl(l*theta_ddot, mkvec(0, sinf(theta),  cosf(theta))));
+  struct vec b1_d = vbasis(0);
+
+  if (self->trajectory == 0) {
+    switch (self->node) {
+      case 1:
+        re_d = mkvec(0, l, 0);
+        re_d_dot = vzero();
+        re_d_ddot = vzero();
+        break;
+      
+      case 2:
+        re_d = mkvec(0, l, 0);
+        re_d_dot = vzero();
+        re_d_ddot = vzero();
+        break;
+      
+      default:
+        break;
+    }
+
+  } else if (self->trajectory == 1) {
+    switch (self->node) {
+      case 1:
+        re_d = mkvec(0, l, 0);
+        re_d_dot = vzero();
+        re_d_ddot = vzero();
+        break;
+      
+      case 2:
+        re_d = mkvec(l, 0, 0);
+        re_d_dot = vzero();
+        re_d_ddot = vzero();
+        break;
+      
+      default:
+        break;
+    }
+
+  } else {
+    switch (self->node) {
+      case 1:
+        re_d =      vscl(l,                          mkvec(0, cosf(theta),  sinf(theta)));
+        re_d_dot =  vscl(l*theta_dot,                mkvec(0, -sinf(theta), cosf(theta)));
+        re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, -cosf(theta), -sinf(theta))),
+                                  vscl(l*theta_ddot, mkvec(0, -sinf(theta), cosf(theta))));
+        break;
+      
+      case 2:
+        re_d =      vscl(l,                          mkvec(0, -cosf(theta), sinf(theta)));
+        re_d_dot =  vscl(l*theta_dot,                mkvec(0, sinf(theta),  cosf(theta)));
+        re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, cosf(theta),  -sinf(theta))),
+                                  vscl(l*theta_ddot, mkvec(0, sinf(theta),  cosf(theta))));
+        break;
+      
+      default:
+        break;
+    }
   }
-  b1_d = vbasis(0);
 
   // theta = floorf(t/2.0f)*M_PI_F/4.0f;
   // re_d = vscl(l, mkvec(cosf(theta), sinf(theta), 0));
@@ -639,6 +682,8 @@ PARAM_ADD(PARAM_UINT8, disable_props, &disable_props)
 PARAM_ADD(PARAM_FLOAT, kx_lf, &g_self2.kx_lf)
 PARAM_ADD(PARAM_FLOAT, kv_lf, &g_self2.kv_lf)
 PARAM_ADD(PARAM_FLOAT, ki_lf, &g_self2.ki_lf)
+
+PARAM_ADD(PARAM_UINT8, trajectory, &g_self2.trajectory)
 
 PARAM_GROUP_STOP(ctrlLee2)
 
