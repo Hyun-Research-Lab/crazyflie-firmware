@@ -306,7 +306,7 @@ static void stabilizerTask(void* param)
   // Initialize stabilizerStep to something else than 0
   stabilizerStep = 1;
 
-  int32_t count = 0;
+  // int32_t count = 0;
 
   systemWaitStart();
   DEBUG_PRINT("Starting stabilizer loop\n");
@@ -380,11 +380,12 @@ static void stabilizerTask(void* param)
         controlMotors(&control);
       } else {
         motorsStop();
-        count = 0;
+        // count = 0;
       }
 
       // print the thrust and battery voltage every 1 second
-      
+      // count++;
+      // count %= 1000;
       // if (count == 0) {
       //   DEBUG_PRINT("Fz: %0.4f Batt: %0.3f CMD: %0.2f\n", (double)control.Fz, (double)pmGetBatteryVoltage(), (double)motorPwm.motors.m1);
       // }

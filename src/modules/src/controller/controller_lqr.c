@@ -8,30 +8,11 @@
 #include "platform_defaults.h"
 
 #include "debug.h"
+#include "config.h"
 
 #if (LQR_NUM_STATES == 12)
 
-/*
-
-The original controller. Works well, but landing is +/- 6 inches in the y direction.
-
-# Compute the LQR controller
-Q = np.diag([
-    1, 1, 10, # position
-    20, 20, 5, # orientation
-    1, 1, 10, # linear velocity
-    0, 0, 0, # angular velocity (can we fly without any angular velocity control?)
-])
-
-R = np.diag([
-    50, # servo right
-    50, # servo left
-    1, # propeller right
-    1, # propeller left
-])
-
-sys_dt = DiscreteTimeApproximation(sys, 1/50)
-
+#if defined(CONFIG_BATTERY_550)
 static controllerLQR_t g_self = {
   .k1 = {0.08737846f, 0.00518231f, 0.00000000f,
          -0.04022944f, 0.61655673f, -0.20388516f, 0.13644939f, 0.00831614f, -0.00000000f, -0.00721764f, 0.08684703f, -0.04707753f},
@@ -45,75 +26,21 @@ static controllerLQR_t g_self = {
   .k4 = {0.00000000f, 0.57855870f, 2.02812104f,
          -3.63218699f, 0.00000000f, 0.08074192f, 0.00000000f, 0.87359421f, 2.26742355f, -0.39347115f, 0.00000000f, 0.01167539f}
 };
-*/
-
-/*
-Increased the gains to improve the landing accuracy, but by way too much. Now the bicopter is unstable in flight and subject to large oscillations.
-# Compute the LQR controller
-Q = np.diag([
-    10, 10, 10, # position
-    20, 20, 5, # orientation
-    10, 10, 10, # linear velocity
-    0, 0, 0, # angular velocity (can we fly without any angular velocity control?)
-])
-
-R = np.diag([
-    50, # servo right
-    50, # servo left
-    1, # propeller right
-    1, # propeller left
-])
-*/
-
-/*
-Instead of increasing the gains by a factor of 10, use gains of 1 and 3 for x and y position instead...
-
-Q = np.diag([
-    1, 3, 10, # position
-    20, 20, 5, # orientation
-    10, 10, 10, # linear velocity
-    0, 0, 0, # angular velocity (can we fly without any angular velocity control?)
-])
-
-R = np.diag([
-    50, # servo right
-    50, # servo left
-    1, # propeller right
-    1, # propeller left
-])
-*/
-
-/*
-Gains are still too large on the y coordinate. Using 1.5 instead of 3.
-
-Q = np.diag([
-    1, 1.5, 10, # position
-    20, 20, 5, # orientation
-    10, 10, 10, # linear velocity
-    0, 0, 0, # angular velocity (can we fly without any angular velocity control?)
-])
-
-R = np.diag([
-    50, # servo right
-    50, # servo left
-    1, # propeller right
-    1, # propeller left
-])
-*/
-
+#else // CONFIG_BATTERY_1550
 static controllerLQR_t g_self = {
-  .k1 = {0.08737846f, 0.00518231f, 0.00000000f,
-         -0.04022944f, 0.61655673f, -0.20388516f, 0.13644939f, 0.00831614f, -0.00000000f, -0.00721764f, 0.08684703f, -0.04707753f},
+  .k1 = {0.08477460f, 0.00570077f, 0.00000000f,
+         -0.05035605f, 0.79257731f, -0.20066042f, 0.29251612f, 0.01658239f, 0.00000000f, -0.00707879f, 0.08482377f, -0.03963820f},
 
-  .k2 = {0.08737846f, -0.00518231f, 0.00000000f,
-         0.04022944f, 0.61655673f, 0.20388516f, 0.13644939f, -0.00831614f, 0.00000000f, 0.00721764f, 0.08684703f, 0.04707753f},
+  .k2 = {0.08477460f, -0.00570077f, -0.00000000f,
+         0.05035605f, 0.79257731f, 0.20066042f, 0.29251612f, -0.01658239f, 0.00000000f, 0.00707879f, 0.08482377f, 0.03963820f},
 
-  .k3 = {-0.00000000f, -0.57855870f, 2.02812104f,
-         3.63218699f, -0.00000000f, -0.08074192f, 0.00000000f, -0.87359421f, 2.26742355f, 0.39347115f, 0.00000000f, -0.01167539f},
+  .k3 = {0.00000000f, -0.68218134f, 2.05462079f,
+         4.72116559f, 0.00000000f, -0.07540196f, 0.00000000f, -1.93883988f, 2.33279046f, 0.42979153f, 0.00000000f, -0.01058705f},
 
-  .k4 = {0.00000000f, 0.57855870f, 2.02812104f,
-         -3.63218699f, 0.00000000f, 0.08074192f, 0.00000000f, 0.87359421f, 2.26742355f, -0.39347115f, 0.00000000f, 0.01167539f}
+  .k4 = {0.00000000f, 0.68218134f, 2.05462079f,
+         -4.72116559f, -0.00000000f, 0.07540196f, -0.00000000f, 1.93883988f, 2.33279046f, -0.42979153f, -0.00000000f, 0.01058705f}
 };
+#endif
 
 
 #else
