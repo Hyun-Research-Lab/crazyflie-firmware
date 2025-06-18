@@ -133,6 +133,7 @@ typedef struct controllerLee2_s {
   struct vec term4;
 
   uint8_t trajectory;
+  float l;
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
@@ -159,6 +160,7 @@ static controllerLee2_t g_self2 = {
   .sigma_lf = 1.0,
 
   .trajectory = 0,
+  .l = 0,
 };
 
 static inline struct mat33 vouter(struct vec a, struct vec b) {
@@ -221,6 +223,7 @@ void p2pCB(P2PPacket* packet) {
   struct vec re = vsub(self->x, x_l);
   struct vec re_dot = vsub(self->v, v_l);
   float l = vmag(re);//0.3716;
+  self->l = l;
 
   float theta =      M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
   float theta_dot =  M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
@@ -569,7 +572,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       vscl(-self->kv, self->ev),
       vscl(-self->ki, self->ei),
       a_d));
-    self->F_d_bar = veltmul(mkvec(0.1f, 0.1f, 1.0f), self->F_d_bar);
+    // self->F_d_bar = veltmul(mkvec(0.1f, 0.1f, 1.0f), self->F_d_bar);
     struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
     self->f = vdot(F_d, mvmul(R, vbasis(2)));
     
@@ -741,6 +744,7 @@ LOG_GROUP_START(ctrlLee2)
 // LOG_ADD(LOG_FLOAT, ei_lf3, &g_self2.ei_lf.z)
 
 // LOG_ADD(LOG_FLOAT, t, &t)
+LOG_ADD(LOG_FLOAT, l, &g_self2.l)
 
 LOG_ADD(LOG_FLOAT, term0_1, &g_self2.term0.x)
 LOG_ADD(LOG_FLOAT, term0_2, &g_self2.term0.y)
