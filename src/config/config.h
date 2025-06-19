@@ -214,13 +214,6 @@
 #define RADIO_ADDRESS 0xE7E7E7E7E7ULL
 
 /**
- * \def PROPELLER_BALANCE_TEST_THRESHOLD
- * This is the threshold for a propeller/motor to pass. It calculates the variance of the accelerometer X+Y
- * when the propeller is spinning.
- */
-#define PROPELLER_BALANCE_TEST_THRESHOLD  2.5f
-
-/**
  * \def BAT_LOADING_SAG_THRESHOLD
  * This is the threshold for a battery and connector to pass. It loads the power path by spinning all 4 motors
  * and measure the voltage sag. The threshold is very experimental and dependent on stock configuration. It is
@@ -237,10 +230,10 @@
 // Define to force initialization of expansion board drivers. For test-rig and programming.
 //#define FORCE_EXP_DETECT
 
-/**
- * \def PRINT_OS_DEBUG_INFO
- * Print with an interval information about freertos mem/stack usage to console.
- */
+// /**
+//  * \def PRINT_OS_DEBUG_INFO
+//  * Print with an interval information about freertos mem/stack usage to console.
+//  */
 //#define PRINT_OS_DEBUG_INFO
 
 
@@ -253,11 +246,11 @@
 //#define T_LAUCH_MOTORS
 //#define T_LAUCH_MOTOR_TEST
 //#define MOTOR_RAMPUP_TEST
-/**
- * \def ADC_OUTPUT_RAW_DATA
- * When defined the gyro data will be written to the UART channel.
- * The UART must be configured to run really fast, e.g. in 2Mb/s.
- */
+// /**
+//  * \def ADC_OUTPUT_RAW_DATA
+//  * When defined the gyro data will be written to the UART channel.
+//  * The UART must be configured to run really fast, e.g. in 2Mb/s.
+//  */
 //#define ADC_OUTPUT_RAW_DATA
 
 #if defined(UART_OUTPUT_TRACE_DATA) && defined(ADC_OUTPUT_RAW_DATA)
