@@ -126,12 +126,6 @@ typedef struct controllerLee2_s {
   struct vec ev_lf;
   struct vec ei_lf;
 
-  struct vec term0;
-  struct vec term1;
-  struct vec term2;
-  struct vec term3;
-  struct vec term4;
-
   uint8_t trajectory;
   float l;
 } controllerLee2_t;
@@ -508,12 +502,6 @@ void controllerOutOfTreeInit() {
   self->ex_lf = vzero();
   self->ev_lf = vzero();
   self->ei_lf = vzero();
-
-  self->term0 = vzero();
-  self->term1 = vzero();
-  self->term2 = vzero();
-  self->term3 = vzero();
-  self->term4 = vzero();
 }
 
 bool controllerOutOfTreeTest() {
@@ -692,13 +680,13 @@ PARAM_GROUP_STOP(ctrlLee2)
 
 LOG_GROUP_START(ctrlLee2)
 
-// // Wrench
-// LOG_ADD(LOG_FLOAT, f, &g_self2.f)
-// LOG_ADD(LOG_FLOAT, M1, &g_self2.M.x)
-// LOG_ADD(LOG_FLOAT, M2, &g_self2.M.y)
-// LOG_ADD(LOG_FLOAT, M3, &g_self2.M.z)
+// Wrench
+LOG_ADD(LOG_FLOAT, f, &g_self2.f)
+LOG_ADD(LOG_FLOAT, M1, &g_self2.M.x)
+LOG_ADD(LOG_FLOAT, M2, &g_self2.M.y)
+LOG_ADD(LOG_FLOAT, M3, &g_self2.M.z)
 
-// // Errors
+// Errors
 // LOG_ADD(LOG_FLOAT, ex1, &g_self2.ex.x)
 // LOG_ADD(LOG_FLOAT, ex2, &g_self2.ex.y)
 // LOG_ADD(LOG_FLOAT, ex3, &g_self2.ex.z)
@@ -706,6 +694,10 @@ LOG_GROUP_START(ctrlLee2)
 // LOG_ADD(LOG_FLOAT, ev1, &g_self2.ev.x)
 // LOG_ADD(LOG_FLOAT, ev2, &g_self2.ev.y)
 // LOG_ADD(LOG_FLOAT, ev3, &g_self2.ev.z)
+
+LOG_ADD(LOG_FLOAT, ei1, &g_self2.ei.x)
+LOG_ADD(LOG_FLOAT, ei2, &g_self2.ei.y)
+LOG_ADD(LOG_FLOAT, ei3, &g_self2.ei.z)
 
 // LOG_ADD(LOG_FLOAT, eR1, &g_self2.eR.x)
 // LOG_ADD(LOG_FLOAT, eR2, &g_self2.eR.y)
@@ -715,9 +707,9 @@ LOG_GROUP_START(ctrlLee2)
 // LOG_ADD(LOG_FLOAT, eW2, &g_self2.eW.y)
 // LOG_ADD(LOG_FLOAT, eW3, &g_self2.eW.z)
 
-// // LOG_ADD(LOG_FLOAT, eI1, &g_self2.eI.x)
-// // LOG_ADD(LOG_FLOAT, eI2, &g_self2.eI.y)
-// // LOG_ADD(LOG_FLOAT, eI3, &g_self2.eI.z)
+LOG_ADD(LOG_FLOAT, eI1, &g_self2.eI.x)
+LOG_ADD(LOG_FLOAT, eI2, &g_self2.eI.y)
+LOG_ADD(LOG_FLOAT, eI3, &g_self2.eI.z)
 
 // LOG_ADD(LOG_FLOAT, W_d1, &g_self2.W_d.x)
 // LOG_ADD(LOG_FLOAT, W_d2, &g_self2.W_d.y)
@@ -739,31 +731,11 @@ LOG_GROUP_START(ctrlLee2)
 // LOG_ADD(LOG_FLOAT, ev_lf2, &g_self2.ev_lf.y)
 // LOG_ADD(LOG_FLOAT, ev_lf3, &g_self2.ev_lf.z)
 
-// LOG_ADD(LOG_FLOAT, ei_lf1, &g_self2.ei_lf.x)
-// LOG_ADD(LOG_FLOAT, ei_lf2, &g_self2.ei_lf.y)
-// LOG_ADD(LOG_FLOAT, ei_lf3, &g_self2.ei_lf.z)
+LOG_ADD(LOG_FLOAT, ei_lf1, &g_self2.ei_lf.x)
+LOG_ADD(LOG_FLOAT, ei_lf2, &g_self2.ei_lf.y)
+LOG_ADD(LOG_FLOAT, ei_lf3, &g_self2.ei_lf.z)
 
-// LOG_ADD(LOG_FLOAT, t, &t)
+LOG_ADD(LOG_FLOAT, t, &t)
 LOG_ADD(LOG_FLOAT, l, &g_self2.l)
-
-LOG_ADD(LOG_FLOAT, term0_1, &g_self2.term0.x)
-LOG_ADD(LOG_FLOAT, term0_2, &g_self2.term0.y)
-LOG_ADD(LOG_FLOAT, term0_3, &g_self2.term0.z)
-
-LOG_ADD(LOG_FLOAT, term1_1, &g_self2.term1.x)
-LOG_ADD(LOG_FLOAT, term1_2, &g_self2.term1.y)
-LOG_ADD(LOG_FLOAT, term1_3, &g_self2.term1.z)
-
-LOG_ADD(LOG_FLOAT, term2_1, &g_self2.term2.x)
-LOG_ADD(LOG_FLOAT, term2_2, &g_self2.term2.y)
-LOG_ADD(LOG_FLOAT, term2_3, &g_self2.term2.z)
-
-LOG_ADD(LOG_FLOAT, term3_1, &g_self2.term3.x)
-LOG_ADD(LOG_FLOAT, term3_2, &g_self2.term3.y)
-LOG_ADD(LOG_FLOAT, term3_3, &g_self2.term3.z)
-
-LOG_ADD(LOG_FLOAT, term4_1, &g_self2.term4.x)
-LOG_ADD(LOG_FLOAT, term4_2, &g_self2.term4.y)
-LOG_ADD(LOG_FLOAT, term4_3, &g_self2.term4.z)
 
 LOG_GROUP_STOP(ctrlLee2)
