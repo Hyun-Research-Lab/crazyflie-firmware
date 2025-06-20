@@ -126,6 +126,9 @@ typedef struct controllerLee2_s {
   struct vec ev_lf;
   struct vec ei_lf;
 
+  float kR_geo;
+  float kv_geo;
+
   uint8_t trajectory;
   float l;
 } controllerLee2_t;
@@ -152,6 +155,9 @@ static controllerLee2_t g_self2 = {
   .kv_lf = 10.0,
   .ki_lf = 4.0,
   .sigma_lf = 1.0,
+
+  .kR_geo = 10.0,
+  .kv_geo = 10.0,
 
   .trajectory = 0,
   .l = 0,
@@ -327,8 +333,8 @@ void p2pCB(P2PPacket* packet) {
   float ev2 = vdot(t3, re_dot) - vdot(t3_d, re_d_dot);
   float ev_norm = sqrtf(ev1*ev1 + ev2*ev2);
   
-  float u_m1 = -self->kx_lf*eR - self->kv_lf*ev1 - beta*(n-1)*ev1*ev_norm + vdot(t2_d, re_d_ddot);
-  float u_m2 =                  -self->kv_lf*ev2 - beta*(n-1)*ev2*ev_norm + vdot(t3_d, re_d_ddot);
+  float u_m1 = -self->kR_geo*eR - self->kv_geo*ev1 - beta*(n-1)*ev1*ev_norm + vdot(t2_d, re_d_ddot);
+  float u_m2 =                   -self->kv_geo*ev2 - beta*(n-1)*ev2*ev_norm + vdot(t3_d, re_d_ddot);
   struct vec u = vadd(vscl(u_m1, t2), vscl(u_m2, t3));
 #endif
 
@@ -663,16 +669,20 @@ PARAM_ADD(PARAM_FLOAT, m, &g_self2.m)
 
 PARAM_ADD(PARAM_FLOAT, kx, &g_self2.kx)
 PARAM_ADD(PARAM_FLOAT, kv, &g_self2.kv)
+PARAM_ADD(PARAM_FLOAT, ki, &g_self2.ki)
+
 PARAM_ADD(PARAM_FLOAT, kR, &g_self2.kR)
 PARAM_ADD(PARAM_FLOAT, kW, &g_self2.kW)
-// PARAM_ADD(PARAM_FLOAT, kI, &g_self2.kI)
-// PARAM_ADD(PARAM_FLOAT, c2, &g_self2.c2)
+PARAM_ADD(PARAM_FLOAT, kI, &g_self2.kI)
 
 PARAM_ADD(PARAM_UINT8, disable_props, &disable_props)
 
 PARAM_ADD(PARAM_FLOAT, kx_lf, &g_self2.kx_lf)
 PARAM_ADD(PARAM_FLOAT, kv_lf, &g_self2.kv_lf)
 PARAM_ADD(PARAM_FLOAT, ki_lf, &g_self2.ki_lf)
+
+PARAM_ADD(PARAM_FLOAT, kR_geo, &g_self2.kR_geo)
+PARAM_ADD(PARAM_FLOAT, kv_geo, &g_self2.kv_geo)
 
 PARAM_ADD(PARAM_UINT8, trajectory, &g_self2.trajectory)
 
