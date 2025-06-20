@@ -133,6 +133,10 @@ typedef struct controllerLee2_s {
   float ev1_geo;
   float ev2_geo;
 
+  float flap_freq;
+  float flap_amp;
+  float flap_phase;
+
   uint8_t trajectory;
   float l;
 } controllerLee2_t;
@@ -162,6 +166,10 @@ static controllerLee2_t g_self2 = {
 
   .kR_geo = 10.0,
   .kv_geo = 10.0,
+
+  .flap_freq = M_PI_F/2.0f,
+  .flap_amp = M_PI_F/8.0f,
+  .flap_phase = -0.3f,
 
   .trajectory = 0,
   .l = 0,
@@ -228,10 +236,14 @@ void p2pCB(P2PPacket* packet) {
   struct vec re_dot = vsub(self->v, v_l);
   float l = vmag(re);//0.3716;
   self->l = l;
+  
+  float theta =      self->flap_amp * cosf(self->flap_freq*t);
+  float theta_dot =  self->flap_amp * -self->flap_freq*sinf(self->flap_freq*t);
+  float theta_ddot = self->flap_amp * -self->flap_freq*self->flap_freq*cosf(self->flap_freq*t);
 
-  float theta =      M_PI_F/8.0f * cosf(M_PI_F/2.0f*t);
-  float theta_dot =  M_PI_F/8.0f * -M_PI_F/2.0f*sinf(M_PI_F/2.0f*t);
-  float theta_ddot = M_PI_F/8.0f * -M_PI_F/2.0f*M_PI_F/2.0f*cosf(M_PI_F/2.0f*t);
+  float theta_phase =      self->flap_amp * cosf(self->flap_freq*(t+self->flap_phase));
+  float theta_phase_dot =  self->flap_amp * -self->flap_freq*sinf(self->flap_freq*(t+self->flap_phase));
+  float theta_phase_ddot = self->flap_amp * -self->flap_freq*self->flap_freq*cosf(self->flap_freq*(t+self->flap_phase));
   
   // Desired values
   struct vec re_d;
@@ -283,8 +295,15 @@ void p2pCB(P2PPacket* packet) {
         re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, -cosf(theta), -sinf(theta))),
                                   vscl(l*theta_ddot, mkvec(0, -sinf(theta), cosf(theta))));
         break;
-      
+
       case 2:
+        re_d =      vscl(l,                                      mkvec(0, cosf(theta_phase),  sinf(theta_phase)));
+        re_d_dot =  vscl(l*theta_phase_dot,                      mkvec(0, -sinf(theta_phase), cosf(theta_phase)));
+        re_d_ddot = vadd(vscl(l*theta_phase_dot*theta_phase_dot, mkvec(0, -cosf(theta_phase), -sinf(theta_phase))),
+                                        vscl(l*theta_phase_ddot, mkvec(0, -sinf(theta_phase), cosf(theta_phase))));
+        break;
+      
+      case 3:
         re_d =      vscl(l,                          mkvec(0, -cosf(theta), sinf(theta)));
         re_d_dot =  vscl(l*theta_dot,                mkvec(0, sinf(theta),  cosf(theta)));
         re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, cosf(theta),  -sinf(theta))),
