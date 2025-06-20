@@ -129,6 +129,10 @@ typedef struct controllerLee2_s {
   float kR_geo;
   float kv_geo;
 
+  float eR_geo;
+  float ev1_geo;
+  float ev2_geo;
+
   uint8_t trajectory;
   float l;
 } controllerLee2_t;
@@ -328,13 +332,13 @@ void p2pCB(P2PPacket* packet) {
   struct vec t3_d = t3;
   struct vec t2_d = vcross(t3_d, t1_d);
 
-  float eR = l*atan2f(vdot(t1, t2_d), vdot(t1, t1_d));
-  float ev1 = vdot(t2, re_dot) - vdot(t2_d, re_d_dot);
-  float ev2 = vdot(t3, re_dot) - vdot(t3_d, re_d_dot);
-  float ev_norm = sqrtf(ev1*ev1 + ev2*ev2);
+  self->eR_geo = l*atan2f(vdot(t1, t2_d), vdot(t1, t1_d));
+  self->ev1_geo = vdot(t2, re_dot) - vdot(t2_d, re_d_dot);
+  self->ev2_geo = vdot(t3, re_dot) - vdot(t3_d, re_d_dot);
+  float ev_norm = sqrtf(self->ev1_geo*self->ev1_geo + self->ev2_geo*self->ev2_geo);
   
-  float u_m1 = -self->kR_geo*eR - self->kv_geo*ev1 - beta*(n-1)*ev1*ev_norm + vdot(t2_d, re_d_ddot);
-  float u_m2 =                   -self->kv_geo*ev2 - beta*(n-1)*ev2*ev_norm + vdot(t3_d, re_d_ddot);
+  float u_m1 = -self->kR_geo*self->eR_geo - self->kv_geo*self->ev1_geo - beta*(n-1)*self->ev1_geo*ev_norm + vdot(t2_d, re_d_ddot);
+  float u_m2 =                             -self->kv_geo*self->ev2_geo - beta*(n-1)*self->ev2_geo*ev_norm + vdot(t3_d, re_d_ddot);
   struct vec u = vadd(vscl(u_m1, t2), vscl(u_m2, t3));
 #endif
 
@@ -508,6 +512,10 @@ void controllerOutOfTreeInit() {
   self->ex_lf = vzero();
   self->ev_lf = vzero();
   self->ei_lf = vzero();
+
+  self->eR_geo = 0;
+  self->ev1_geo = 0;
+  self->ev2_geo = 0;
 }
 
 bool controllerOutOfTreeTest() {
@@ -691,10 +699,10 @@ PARAM_GROUP_STOP(ctrlLee2)
 LOG_GROUP_START(ctrlLee2)
 
 // Wrench
-LOG_ADD(LOG_FLOAT, f, &g_self2.f)
-LOG_ADD(LOG_FLOAT, M1, &g_self2.M.x)
-LOG_ADD(LOG_FLOAT, M2, &g_self2.M.y)
-LOG_ADD(LOG_FLOAT, M3, &g_self2.M.z)
+// LOG_ADD(LOG_FLOAT, f, &g_self2.f)
+// LOG_ADD(LOG_FLOAT, M1, &g_self2.M.x)
+// LOG_ADD(LOG_FLOAT, M2, &g_self2.M.y)
+// LOG_ADD(LOG_FLOAT, M3, &g_self2.M.z)
 
 // Errors
 // LOG_ADD(LOG_FLOAT, ex1, &g_self2.ex.x)
@@ -705,9 +713,9 @@ LOG_ADD(LOG_FLOAT, M3, &g_self2.M.z)
 // LOG_ADD(LOG_FLOAT, ev2, &g_self2.ev.y)
 // LOG_ADD(LOG_FLOAT, ev3, &g_self2.ev.z)
 
-LOG_ADD(LOG_FLOAT, ei1, &g_self2.ei.x)
-LOG_ADD(LOG_FLOAT, ei2, &g_self2.ei.y)
-LOG_ADD(LOG_FLOAT, ei3, &g_self2.ei.z)
+// LOG_ADD(LOG_FLOAT, ei1, &g_self2.ei.x)
+// LOG_ADD(LOG_FLOAT, ei2, &g_self2.ei.y)
+// LOG_ADD(LOG_FLOAT, ei3, &g_self2.ei.z)
 
 // LOG_ADD(LOG_FLOAT, eR1, &g_self2.eR.x)
 // LOG_ADD(LOG_FLOAT, eR2, &g_self2.eR.y)
@@ -717,9 +725,9 @@ LOG_ADD(LOG_FLOAT, ei3, &g_self2.ei.z)
 // LOG_ADD(LOG_FLOAT, eW2, &g_self2.eW.y)
 // LOG_ADD(LOG_FLOAT, eW3, &g_self2.eW.z)
 
-LOG_ADD(LOG_FLOAT, eI1, &g_self2.eI.x)
-LOG_ADD(LOG_FLOAT, eI2, &g_self2.eI.y)
-LOG_ADD(LOG_FLOAT, eI3, &g_self2.eI.z)
+// LOG_ADD(LOG_FLOAT, eI1, &g_self2.eI.x)
+// LOG_ADD(LOG_FLOAT, eI2, &g_self2.eI.y)
+// LOG_ADD(LOG_FLOAT, eI3, &g_self2.eI.z)
 
 // LOG_ADD(LOG_FLOAT, W_d1, &g_self2.W_d.x)
 // LOG_ADD(LOG_FLOAT, W_d2, &g_self2.W_d.y)
@@ -741,9 +749,13 @@ LOG_ADD(LOG_FLOAT, eI3, &g_self2.eI.z)
 // LOG_ADD(LOG_FLOAT, ev_lf2, &g_self2.ev_lf.y)
 // LOG_ADD(LOG_FLOAT, ev_lf3, &g_self2.ev_lf.z)
 
-LOG_ADD(LOG_FLOAT, ei_lf1, &g_self2.ei_lf.x)
-LOG_ADD(LOG_FLOAT, ei_lf2, &g_self2.ei_lf.y)
-LOG_ADD(LOG_FLOAT, ei_lf3, &g_self2.ei_lf.z)
+// LOG_ADD(LOG_FLOAT, ei_lf1, &g_self2.ei_lf.x)
+// LOG_ADD(LOG_FLOAT, ei_lf2, &g_self2.ei_lf.y)
+// LOG_ADD(LOG_FLOAT, ei_lf3, &g_self2.ei_lf.z)
+
+LOG_ADD(LOG_FLOAT, eR_geo, &g_self2.eR_geo)
+LOG_ADD(LOG_FLOAT, ev1_geo, &g_self2.ev1_geo)
+LOG_ADD(LOG_FLOAT, ev2_geo, &g_self2.ev2_geo)
 
 LOG_ADD(LOG_FLOAT, t, &t)
 LOG_ADD(LOG_FLOAT, l, &g_self2.l)
