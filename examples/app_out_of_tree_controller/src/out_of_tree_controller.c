@@ -251,16 +251,19 @@ void p2pCB(P2PPacket* packet) {
   struct vec re_d_ddot;
   struct vec b1_d = vbasis(0);
 
+  // Straight line
   if (self->trajectory == 0) {
     switch (self->node) {
       case 1:
+      case 2:
         re_d = mkvec(0, l, 0);
         re_d_dot = vzero();
         re_d_ddot = vzero();
         break;
       
-      case 2:
-        re_d = mkvec(0, l, 0);
+      case 3:
+      case 4:
+        re_d = mkvec(0, -l, 0);
         re_d_dot = vzero();
         re_d_ddot = vzero();
         break;
@@ -269,6 +272,7 @@ void p2pCB(P2PPacket* packet) {
         break;
     }
 
+  // Square
   } else if (self->trajectory == 1) {
     switch (self->node) {
       case 1:
@@ -278,6 +282,7 @@ void p2pCB(P2PPacket* packet) {
         break;
       
       case 2:
+      case 3:
         re_d = mkvec(l, 0, 0);
         re_d_dot = vzero();
         re_d_ddot = vzero();
@@ -287,6 +292,7 @@ void p2pCB(P2PPacket* packet) {
         break;
     }
 
+  // Flapper
   } else {
     switch (self->node) {
       case 1:
@@ -308,6 +314,13 @@ void p2pCB(P2PPacket* packet) {
         re_d_dot =  vscl(l*theta_dot,                mkvec(0, sinf(theta),  cosf(theta)));
         re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, cosf(theta),  -sinf(theta))),
                                   vscl(l*theta_ddot, mkvec(0, sinf(theta),  cosf(theta))));
+        break;
+      
+      case 4:
+        re_d =      vscl(l,                                      mkvec(0, -cosf(theta_phase), sinf(theta_phase)));
+        re_d_dot =  vscl(l*theta_phase_dot,                      mkvec(0, sinf(theta_phase),  cosf(theta_phase)));
+        re_d_ddot = vadd(vscl(l*theta_phase_dot*theta_phase_dot, mkvec(0, cosf(theta_phase),  -sinf(theta_phase))),
+                                        vscl(l*theta_phase_ddot, mkvec(0, sinf(theta_phase),  cosf(theta_phase))));
         break;
       
       default:
@@ -711,6 +724,10 @@ PARAM_ADD(PARAM_FLOAT, ki_lf, &g_self2.ki_lf)
 PARAM_ADD(PARAM_FLOAT, kR_geo, &g_self2.kR_geo)
 PARAM_ADD(PARAM_FLOAT, kv_geo, &g_self2.kv_geo)
 
+PARAM_ADD(PARAM_FLOAT, flap_freq, &g_self2.flap_freq)
+PARAM_ADD(PARAM_FLOAT, flap_amp, &g_self2.flap_amp)
+PARAM_ADD(PARAM_FLOAT, flap_phase, &g_self2.flap_phase)
+
 PARAM_ADD(PARAM_UINT8, trajectory, &g_self2.trajectory)
 
 PARAM_GROUP_STOP(ctrlLee2)
@@ -777,6 +794,6 @@ LOG_ADD(LOG_FLOAT, ev1_geo, &g_self2.ev1_geo)
 LOG_ADD(LOG_FLOAT, ev2_geo, &g_self2.ev2_geo)
 
 LOG_ADD(LOG_FLOAT, t, &t)
-LOG_ADD(LOG_FLOAT, l, &g_self2.l)
+// LOG_ADD(LOG_FLOAT, l, &g_self2.l)
 
 LOG_GROUP_STOP(ctrlLee2)
