@@ -117,21 +117,21 @@ typedef struct controllerLee2_s {
   struct vec v;
   struct mat33 R;
 
-  float kx_lf;
-  float kv_lf;
-  float ki_lf;
-  float sigma_lf;
-
-  struct vec ex_lf;
-  struct vec ev_lf;
-  struct vec ei_lf;
-
   float kR_geo;
   float kv_geo;
 
   float eR_geo;
   float ev1_geo;
   float ev2_geo;
+
+  float kx_rob;
+  float kv_rob;
+  float ki_rob;
+  float sigma_rob;
+
+  float ex_rob;
+  float ev_rob;
+  float ei_rob;
 
   float flap_freq;
   float flap_amp;
@@ -159,13 +159,13 @@ static controllerLee2_t g_self2 = {
   .kI = 0.0005,
   .c2 = 0.8,
 
-  .kx_lf = 10.0,
-  .kv_lf = 10.0,
-  .ki_lf = 4.0,
-  .sigma_lf = 1.0,
+  .kR_geo = 5.0,
+  .kv_geo = 5.0,
 
-  .kR_geo = 10.0,
-  .kv_geo = 10.0,
+  .kx_rob = 5.0,
+  .kv_rob = 5.0,
+  .ki_rob = 2.0,
+  .sigma_rob = 1.0,
 
   .flap_freq = M_PI_F/2.0f,
   .flap_amp = M_PI_F/8.0f,
@@ -335,24 +335,7 @@ void p2pCB(P2PPacket* packet) {
   // re_d_ddot = vzero();
   // b1_d = vbasis(0);
 
-// #define PID_CONTROLLER
-#define GEOMETRIC_CONTROLLER
-
-  self->ex_lf = vsub(re, re_d);
-  self->ev_lf = vsub(re_dot, re_d_dot);
-  self->ei_lf = vadd(self->ei_lf, vscl(1.0f/NETWORK_RATE, self->ex_lf));
-  self->ei_lf = vclampscl2(self->ei_lf, -self->sigma_lf, self->sigma_lf);
-  
-  struct vec pid = vadd4(
-    vscl(-self->kx_lf, self->ex_lf),
-    vscl(-self->kv_lf, self->ev_lf),
-    vscl(-self->ki_lf, self->ei_lf),
-    re_d_ddot);
-
-#ifdef PID_CONTROLLER
-  struct mat33 P = msub(meye(), mscl(1.0f/(l*l), vouter(re, re)));
-  struct vec u = mvmul(P, pid);
-#elif defined(GEOMETRIC_CONTROLLER)
+  // Geometric controller
   float beta = 2.7f;
   int n = 3;
 
@@ -371,12 +354,15 @@ void p2pCB(P2PPacket* packet) {
   
   float u_m1 = -self->kR_geo*self->eR_geo - self->kv_geo*self->ev1_geo - beta*(n-1)*self->ev1_geo*ev_norm + vdot(t2_d, re_d_ddot);
   float u_m2 =                             -self->kv_geo*self->ev2_geo - beta*(n-1)*self->ev2_geo*ev_norm + vdot(t3_d, re_d_ddot);
-  struct vec u = vadd(vscl(u_m1, t2), vscl(u_m2, t3));
-#endif
 
   // Add a robustness term
-  struct mat33 P2 = mscl(1.0f/(l*l), vouter(re, re));
-  u = vadd(u, mvmul(P2, pid));
+  self->ex_rob = vdot(vsub(re, re_d), t1);
+  self->ev_rob = vdot(vsub(re_dot, re_d_dot), t1);
+  self->ei_rob += self->ex_rob/NETWORK_RATE;
+  self->ei_rob = clamp(self->ei_rob, -self->sigma_rob, self->sigma_rob);
+
+  struct vec u = vadd3(vscl(u_m1, t2), vscl(u_m2, t3),
+            vscl(-self->kx_rob*self->ex_rob - self->kv_rob*self->ev_rob - self->ki_rob*self->ei_rob + vdot(re_d_ddot, t1), t1));
 
   self->F_d_bar = vscl(self->m, vadd(vdiv(F_d_l_bar, m_l), u));
   struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
@@ -541,13 +527,13 @@ void controllerOutOfTreeInit() {
   self->v = vzero();
   self->R = meye();
 
-  self->ex_lf = vzero();
-  self->ev_lf = vzero();
-  self->ei_lf = vzero();
-
   self->eR_geo = 0;
   self->ev1_geo = 0;
   self->ev2_geo = 0;
+
+  self->ex_rob = 0;
+  self->ev_rob = 0;
+  self->ei_rob = 0;
 }
 
 bool controllerOutOfTreeTest() {
@@ -717,12 +703,12 @@ PARAM_ADD(PARAM_FLOAT, kI, &g_self2.kI)
 
 PARAM_ADD(PARAM_UINT8, disable_props, &disable_props)
 
-PARAM_ADD(PARAM_FLOAT, kx_lf, &g_self2.kx_lf)
-PARAM_ADD(PARAM_FLOAT, kv_lf, &g_self2.kv_lf)
-PARAM_ADD(PARAM_FLOAT, ki_lf, &g_self2.ki_lf)
-
 PARAM_ADD(PARAM_FLOAT, kR_geo, &g_self2.kR_geo)
 PARAM_ADD(PARAM_FLOAT, kv_geo, &g_self2.kv_geo)
+
+PARAM_ADD(PARAM_FLOAT, kx_rob, &g_self2.kx_rob)
+PARAM_ADD(PARAM_FLOAT, kv_rob, &g_self2.kv_rob)
+PARAM_ADD(PARAM_FLOAT, ki_rob, &g_self2.ki_rob)
 
 PARAM_ADD(PARAM_FLOAT, flap_freq, &g_self2.flap_freq)
 PARAM_ADD(PARAM_FLOAT, flap_amp, &g_self2.flap_amp)
@@ -777,21 +763,13 @@ LOG_GROUP_START(ctrlLee2)
 // LOG_ADD(LOG_FLOAT, F_d2, &g_self2.F_d_bar.y)
 // LOG_ADD(LOG_FLOAT, F_d3, &g_self2.F_d_bar.z)
 
-// LOG_ADD(LOG_FLOAT, ex_lf1, &g_self2.ex_lf.x)
-// LOG_ADD(LOG_FLOAT, ex_lf2, &g_self2.ex_lf.y)
-// LOG_ADD(LOG_FLOAT, ex_lf3, &g_self2.ex_lf.z)
-
-// LOG_ADD(LOG_FLOAT, ev_lf1, &g_self2.ev_lf.x)
-// LOG_ADD(LOG_FLOAT, ev_lf2, &g_self2.ev_lf.y)
-// LOG_ADD(LOG_FLOAT, ev_lf3, &g_self2.ev_lf.z)
-
-// LOG_ADD(LOG_FLOAT, ei_lf1, &g_self2.ei_lf.x)
-// LOG_ADD(LOG_FLOAT, ei_lf2, &g_self2.ei_lf.y)
-// LOG_ADD(LOG_FLOAT, ei_lf3, &g_self2.ei_lf.z)
-
 LOG_ADD(LOG_FLOAT, eR_geo, &g_self2.eR_geo)
 LOG_ADD(LOG_FLOAT, ev1_geo, &g_self2.ev1_geo)
 LOG_ADD(LOG_FLOAT, ev2_geo, &g_self2.ev2_geo)
+
+LOG_ADD(LOG_FLOAT, ex_rob, &g_self2.ex_rob)
+LOG_ADD(LOG_FLOAT, ev_rob, &g_self2.ev_rob)
+LOG_ADD(LOG_FLOAT, ei_rob, &g_self2.ei_rob)
 
 LOG_ADD(LOG_FLOAT, t, &t)
 // LOG_ADD(LOG_FLOAT, l, &g_self2.l)
