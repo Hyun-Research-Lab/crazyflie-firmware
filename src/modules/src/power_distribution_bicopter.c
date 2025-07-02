@@ -184,7 +184,8 @@ static void powerDistributionWrench(const control_t *control, motors_thrust_unca
 
 static float m1_pwm;
 static float m4_pwm;
-static float pwmAdjust = 1.0f;
+static float pwmAdjust1 = 1.0f;
+static float pwmAdjust4 = 1.0f;
 static void powerDistributionLQR(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
     // get the desired force to be produced by each motor
     #if defined(CONFIG_BICOPTER_NAME_MELONCOPTER)
@@ -219,8 +220,8 @@ static void powerDistributionLQR(const control_t *control, motors_thrust_uncappe
 
     // maximum pwm value is 1.0
     // pwmAdjust is a parameter we can set to scale up or down all thrusts
-    m1_pwm = fmin(pwm1 * pwmAdjust, 1.0f);
-    m4_pwm = fmin(pwm4 * pwmAdjust, 1.0f);
+    m1_pwm = fmin(pwm1 * pwmAdjust1, 1.0f);
+    m4_pwm = fmin(pwm4 * pwmAdjust4, 1.0f);
 
     motorThrustUncapped->motors.m1 = m1_pwm * UINT16_MAX; // left motor
     motorThrustUncapped->motors.m4 = m4_pwm * UINT16_MAX; // right motor
@@ -311,7 +312,8 @@ PARAM_GROUP_START(powerDist)
  * common value is between 3000 - 6000.
  */
 PARAM_ADD_CORE(PARAM_UINT32 | PARAM_PERSISTENT, idleThrust, &idleThrust)
-PARAM_ADD(PARAM_FLOAT, pwmAdjust, &pwmAdjust)
+PARAM_ADD(PARAM_FLOAT, pwmAdjust1, &pwmAdjust1)
+PARAM_ADD(PARAM_FLOAT, pwmAdjust4, &pwmAdjust4)
 PARAM_GROUP_STOP(powerDist)
 
 /**

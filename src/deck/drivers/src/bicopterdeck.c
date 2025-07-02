@@ -43,8 +43,8 @@ extern const MotorPerifDef* servoMapTX2;
 extern const MotorPerifDef* servoMapMOSI;
 
 #if defined(CONFIG_BICOPTER_NAME_MELONCOPTER)
-static int16_t left_servo_trim = 44;
-static int16_t right_servo_trim = 12;
+static int16_t left_servo_trim = 32 + 7;
+static int16_t right_servo_trim = -6 - 7;
 #elif defined(CONFIG_BICOPTER_NAME_REDCOPTER)
 static int16_t left_servo_trim = 21; // increasing moves the propeller towards positive Y
 static int16_t right_servo_trim = 6; // decreasing moves the propeller towards positive Y
@@ -201,7 +201,8 @@ bool servoTest(void)
   return isInit1 && isInit2;
 }
 
-// left servo (WHITE)
+#if defined(CONFIG_BICOPTER_NAME_REDCOPTER)
+// left servo
 void servo1SetAngle(double angle)
 {
   // set CCR register
@@ -217,7 +218,7 @@ void servo1SetAngle(double angle)
   #endif
 }
 
-// right servo (RED)
+// right servo
 void servo2SetAngle(double angle)
 {
   // set CCR register
@@ -233,6 +234,20 @@ void servo2SetAngle(double angle)
     DEBUG_PRINT("Set Angle: %u deg, pulse width: %f us \n", angle, pulse_length_us);
   #endif
 }
+#else  // MELONCOPTER
+void servo1SetAngle(double angle)
+{
+  const uint32_t ccr_val = (uint32_t)(600 + left_servo_trim + angle*4);
+  servo1Map->setCompare(servo1Map->tim, ccr_val);
+}
+
+// right servo
+void servo2SetAngle(double angle)
+{
+  const uint32_t ccr_val = (uint32_t)(600 + right_servo_trim + angle*4);
+  servo2Map->setCompare(servo2Map->tim, ccr_val);
+}
+#endif 
 
 
 static const DeckDriver bicopter_deck = {

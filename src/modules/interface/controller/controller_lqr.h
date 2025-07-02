@@ -22,6 +22,8 @@ typedef struct controllerLQR_s {
     float k3[LQR_NUM_STATES];
     float k4[LQR_NUM_STATES];
 
+    float mass; // bicopter mass in kg
+
     // Logging variables
     struct vec rpy;
     struct vec rpy_des;
