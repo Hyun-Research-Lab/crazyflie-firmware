@@ -145,7 +145,7 @@ static controllerLee2_t g_self2 = {
   .node = NODE_UNSET, // 0 is leader, 1, 2, 3, ... are followers
   .parent = NODE_UNSET,
   
-  .m = 0.036, // kg
+  .m = 0.0347, // kg
   .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
 
   .kx = 7.0,
