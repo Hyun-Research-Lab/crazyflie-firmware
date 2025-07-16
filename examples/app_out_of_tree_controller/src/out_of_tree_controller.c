@@ -28,6 +28,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <math.h>
 
 #include "app.h"
 
@@ -38,39 +39,81 @@
 #define DEBUG_MODULE "MYCONTROLLER"
 #include "debug.h"
 
+#include "controller.h"
+#include "controller_pid.h"
+#include "commander.h"
 
-// We still need an appMain() function, but we will not really use it. Just let it quietly sleep.
+extern const unsigned int N;
+extern const unsigned int D;
+
+extern const float X_train[];
+extern const float y_mean;
+extern const float y_std;
+extern const float alpha[];
+extern const float lengthscale;
+extern const float outputscale;
+extern const float noise;
+
+unsigned int X_train_idx = 0;
+
+float thrust_hamin = 0.0f;
+
 void appMain() {
   DEBUG_PRINT("Waiting for activation ...\n");
 
+  // vTaskDelay(M2T(5000)); // Wait 5 seconds before starting
+
   while(1) {
-    vTaskDelay(M2T(2000));
+    // Send a manual sepoint
+    setpoint_t setpoint;
+    setpoint.mode.roll = modeAbs;
+    setpoint.mode.pitch = modeAbs;
+    setpoint.mode.yaw = modeAbs;
+    
+    setpoint.attitude.roll = 0.0f;
+    setpoint.attitude.pitch = 0.0f;
+    setpoint.attitude.yaw = 0.0f;
+    setpoint.thrust = 1000.0f;
+
+    commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
+
+    vTaskDelay(M2T(100));
   }
 }
 
-// The new controller goes here --------------------------------------------
-// Move the includes to the the top of the file if you want to
-#include "controller.h"
-
-// Call the PID controller in this example to make it possible to fly. When you implement you own controller, there is
-// no need to include the pid controller.
-#include "controller_pid.h"
-
 void controllerOutOfTreeInit() {
-  // Initialize your controller data here...
-
-  // Call the PID controller instead in this example to make it possible to fly
   controllerPidInit();
 }
 
 bool controllerOutOfTreeTest() {
-  // Always return true
   return true;
 }
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
-  // Implement your controller here...
-
-  // Call the PID controller instead in this example to make it possible to fly
   controllerPid(control, setpoint, sensors, state, tick);
+  control->thrust = thrust_hamin;
+  
+  if (!RATE_DO_EXECUTE(RATE_100_HZ, tick)) {
+    return;
+  }
+  
+  if (RATE_DO_EXECUTE(10, tick)) {
+    X_train_idx++;
+  }
+
+  float f_star = 0.0f;
+  for (int i = 0; i < N; i++) {
+    // Kernel
+    float sqdist = 0.0f;
+    for (int j = 0; j < D; j++) {
+      float diff = X_train[X_train_idx*D + j] - X_train[i*D + j];
+      sqdist += diff * diff;
+    }
+    float k = outputscale * expf(-0.5f * sqdist / (lengthscale * lengthscale));
+    
+    f_star += k * alpha[i];
+  }
+
+  thrust_hamin = f_star * y_std + y_mean;
+  control->thrust = thrust_hamin;
 }
