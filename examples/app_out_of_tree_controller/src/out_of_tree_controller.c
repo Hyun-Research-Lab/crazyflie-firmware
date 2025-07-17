@@ -43,6 +43,9 @@
 #include "controller_pid.h"
 #include "commander.h"
 
+#include "param.h"
+#include "log.h"
+
 extern const unsigned int N;
 extern const unsigned int D;
 
@@ -58,6 +61,8 @@ unsigned int X_train_idx = 0;
 
 float thrust_hamin = 0.0f;
 
+uint8_t start = 0; // Start the controller when set to 1
+
 void appMain() {
   DEBUG_PRINT("Waiting for activation ...\n");
 
@@ -68,11 +73,11 @@ void appMain() {
     setpoint_t setpoint;
     setpoint.mode.roll = modeAbs;
     setpoint.mode.pitch = modeAbs;
-    setpoint.mode.yaw = modeAbs;
+    setpoint.mode.yaw = modeVelocity;
     
     setpoint.attitude.roll = 0.0f;
     setpoint.attitude.pitch = 0.0f;
-    setpoint.attitude.yaw = 0.0f;
+    setpoint.attitudeRate.yaw = 0.0f;
     setpoint.thrust = 1000.0f;
 
     commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
@@ -96,10 +101,32 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   if (!RATE_DO_EXECUTE(RATE_100_HZ, tick)) {
     return;
   }
+
+  if (start == 0) {
+    return;
+  }
   
   if (RATE_DO_EXECUTE(10, tick)) {
     X_train_idx++;
+    if (X_train_idx >= N) {
+      X_train_idx = 0;
+    }
   }
+
+  // float full_state[] = {
+  //   state->position.x,
+  //   state->position.y,
+  //   state->position.z,
+  //   state->velocity.x,
+  //   state->velocity.y,
+  //   state->velocity.z,
+  //   state->attitude.roll,
+  //   state->attitude.pitch,
+  //   state->attitude.yaw,
+  //   sensors->gyro.x,
+  //   sensors->gyro.y,
+  //   sensors->gyro.z
+  // };
 
   float f_star = 0.0f;
   for (int i = 0; i < N; i++) {
@@ -109,6 +136,10 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       float diff = X_train[X_train_idx*D + j] - X_train[i*D + j];
       sqdist += diff * diff;
     }
+    // for (int j = D/2; j < D; j++) {
+    //   float diff = full_state[j - D/2] - X_train[i*D + j];
+    //   sqdist += diff * diff;
+    // }
     float k = outputscale * expf(-0.5f * sqdist / (lengthscale * lengthscale));
     
     f_star += k * alpha[i];
@@ -117,3 +148,17 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   thrust_hamin = f_star * y_std + y_mean;
   control->thrust = thrust_hamin;
 }
+
+
+PARAM_GROUP_START(hamin)
+
+PARAM_ADD(PARAM_UINT8, start, &start)
+
+PARAM_GROUP_STOP(hamin)
+
+
+LOG_GROUP_START(hamin)
+
+LOG_ADD(LOG_FLOAT, thrust, &thrust_hamin)
+
+LOG_GROUP_STOP(hamin)
