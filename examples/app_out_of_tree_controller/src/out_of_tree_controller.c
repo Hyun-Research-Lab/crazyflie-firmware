@@ -237,14 +237,6 @@ void p2pCB(P2PPacket* packet) {
   float l = vmag(re);//0.3716;
   self->l = l;
   
-  float theta =      self->flap_amp * cosf(self->flap_freq*t);
-  float theta_dot =  self->flap_amp * -self->flap_freq*sinf(self->flap_freq*t);
-  float theta_ddot = self->flap_amp * -self->flap_freq*self->flap_freq*cosf(self->flap_freq*t);
-
-  float theta_phase =      self->flap_amp * cosf(self->flap_freq*(t+self->flap_phase));
-  float theta_phase_dot =  self->flap_amp * -self->flap_freq*sinf(self->flap_freq*(t+self->flap_phase));
-  float theta_phase_ddot = self->flap_amp * -self->flap_freq*self->flap_freq*cosf(self->flap_freq*(t+self->flap_phase));
-  
   // Desired values
   struct vec re_d;
   struct vec re_d_dot;
@@ -294,6 +286,14 @@ void p2pCB(P2PPacket* packet) {
 
   // Flapper
   } else {
+    float theta =      self->flap_amp * cosf(self->flap_freq*t);
+    float theta_dot =  self->flap_amp * -self->flap_freq*sinf(self->flap_freq*t);
+    float theta_ddot = self->flap_amp * -self->flap_freq*self->flap_freq*cosf(self->flap_freq*t);
+
+    float theta_phase =      self->flap_amp * cosf(self->flap_freq*(t+self->flap_phase));
+    float theta_phase_dot =  self->flap_amp * -self->flap_freq*sinf(self->flap_freq*(t+self->flap_phase));
+    float theta_phase_ddot = self->flap_amp * -self->flap_freq*self->flap_freq*cosf(self->flap_freq*(t+self->flap_phase));
+
     switch (self->node) {
       case 1:
         re_d =      vscl(l,                          mkvec(0, cosf(theta),  sinf(theta)));
@@ -327,13 +327,6 @@ void p2pCB(P2PPacket* packet) {
         break;
     }
   }
-
-  // theta = floorf(t/2.0f)*M_PI_F/4.0f;
-  // re_d = vscl(l, mkvec(cosf(theta), sinf(theta), 0));
-  // re_d = vscl(l, vbasis(1));
-  // re_d_dot = vzero();
-  // re_d_ddot = vzero();
-  // b1_d = vbasis(0);
 
   // Geometric controller
   float beta = 2.7f;
