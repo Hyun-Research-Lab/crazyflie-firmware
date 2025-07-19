@@ -42,10 +42,15 @@
 #include "controller.h"
 #include "controller_pid.h"
 #include "commander.h"
+#include "math3d.h"
+#include "physicalConstants.h"
+#include "platform_defaults.h"
+#include "power_distribution.h"
 
 #include "param.h"
 #include "log.h"
 
+// Model parameters from gp_model_params.c
 extern const unsigned int N;
 extern const unsigned int D;
 
@@ -57,11 +62,61 @@ extern const float lengthscale;
 extern const float outputscale;
 extern const float noise;
 
-unsigned int X_train_idx = 0;
+void model(const state_t* state, const sensorData_t* sensors, control_t* control, float dt, state_t* next_state, sensorData_t* next_sensors) {
+  // Diagonal of the inertia matrix
+  struct vec J = mkvec(16.571710e-6f, 16.655602e-6f, 29.261652e-6f);
+  struct vec J_inv = mkvec(1.0f/16.571710e-6f, 1.0f/16.655602e-6f, 1.0f/29.261652e-6f);
 
-float thrust_hamin = 0.0f;
+  // Current state
+  struct vec x = mkvec(state->position.x, state->position.y, state->position.z); // m
+  struct vec v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z); // m/s
+  struct mat33 R = quat2rotmat(mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w));
+  struct vec W = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z)); // rad/s
 
-uint8_t start = 0; // Start the controller when set to 1
+  // Control input
+  float f = 0.0f; // N
+  struct vec M = vzero(); // Nm
+  
+  if (control->controlMode == controlModeLegacy) {
+    const float arm = 0.707106781f * ARM_LENGTH;
+    f = control->thrust / UINT16_MAX * powerDistributionGetMaxThrust();
+    M = mkvec(
+      control->roll * 2.0f * STABILIZER_NR_OF_MOTORS * arm,
+      -control->pitch * 2.0f * STABILIZER_NR_OF_MOTORS * arm,
+      -control->yaw * STABILIZER_NR_OF_MOTORS * THRUST2TORQUE);
+  
+  } else if (control->controlMode == controlModeForceTorque) {
+    f = control->thrustSi;
+    M = mkvec(control->torqueX, control->torqueY, control->torqueZ);
+  }
+
+  // System dynamics
+  struct vec x_dot = v;
+  struct vec v_dot = vsub(vscl(GRAVITY_MAGNITUDE, vbasis(2)), vscl(f/CF_MASS, mvmul(R, vbasis(2))));
+  struct mat33 R_dot = mmul(R, mcrossmat(W));
+  struct vec W_dot = veltmul(J_inv, vsub(M, vcross(W, veltmul(J, W))));
+
+  // Estimate the next state
+  struct vec x_next = vadd(x, vscl(dt, x_dot)); // m
+  struct vec v_next = vadd(v, vscl(dt, v_dot)); // m/s
+  struct mat33 R_next = madd(R, mscl(dt, R_dot));
+  struct vec rpy_next = quat2rpy(mat2quat(R_next)); // rad
+  struct vec W_next = vadd(W, vscl(dt, W_dot)); // rad/s
+
+  // Set the next state and sensors
+  next_state->position.x = x_next.x;
+  next_state->position.y = x_next.y;
+  next_state->position.z = x_next.z;
+  next_state->velocity.x = v_next.x;
+  next_state->velocity.y = v_next.y;
+  next_state->velocity.z = v_next.z;
+  next_state->attitude.roll = degrees(rpy_next.x);
+  next_state->attitude.pitch = degrees(rpy_next.y);
+  next_state->attitude.yaw = degrees(rpy_next.z);
+  next_sensors->gyro.x = degrees(W_next.x);
+  next_sensors->gyro.y = degrees(W_next.y);
+  next_sensors->gyro.z = degrees(W_next.z);
+}
 
 void appMain() {
   DEBUG_PRINT("Waiting for activation ...\n");
@@ -69,18 +124,18 @@ void appMain() {
   // vTaskDelay(M2T(5000)); // Wait 5 seconds before starting
 
   while(1) {
-    // Send a manual sepoint
-    setpoint_t setpoint;
-    setpoint.mode.roll = modeAbs;
-    setpoint.mode.pitch = modeAbs;
-    setpoint.mode.yaw = modeVelocity;
+    // // Send a manual sepoint
+    // setpoint_t setpoint;
+    // setpoint.mode.roll = modeAbs;
+    // setpoint.mode.pitch = modeAbs;
+    // setpoint.mode.yaw = modeVelocity;
     
-    setpoint.attitude.roll = 0.0f;
-    setpoint.attitude.pitch = 0.0f;
-    setpoint.attitudeRate.yaw = 0.0f;
-    setpoint.thrust = 1000.0f;
+    // setpoint.attitude.roll = 0.0f;
+    // setpoint.attitude.pitch = 0.0f;
+    // setpoint.attitudeRate.yaw = 0.0f;
+    // setpoint.thrust = 1000.0f;
 
-    commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
+    // commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
 
     vTaskDelay(M2T(100));
   }
@@ -95,70 +150,78 @@ bool controllerOutOfTreeTest() {
 }
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
-  controllerPid(control, setpoint, sensors, state, tick);
-  control->thrust = thrust_hamin;
-  
   if (!RATE_DO_EXECUTE(RATE_100_HZ, tick)) {
     return;
   }
-
-  if (start == 0) {
-    return;
-  }
   
-  if (RATE_DO_EXECUTE(10, tick)) {
-    X_train_idx++;
-    if (X_train_idx >= N) {
-      X_train_idx = 0;
-    }
-  }
+  // Calculate the nominal control (u_bar) using the PID controller
+  control_t nominal_control;
+  controllerPid(&nominal_control, setpoint, sensors, state, 0); // Set stabilizerStep to 0 so the controller is always run when called
 
-  // float full_state[] = {
-  //   state->position.x,
-  //   state->position.y,
-  //   state->position.z,
-  //   state->velocity.x,
-  //   state->velocity.y,
-  //   state->velocity.z,
-  //   state->attitude.roll,
-  //   state->attitude.pitch,
-  //   state->attitude.yaw,
-  //   sensors->gyro.x,
-  //   sensors->gyro.y,
-  //   sensors->gyro.z
-  // };
+  // Estimate the next state after a given time if the nominal control is applied
+  state_t next_state;
+  sensorData_t next_sensors;
+  model(state, sensors, &nominal_control, 0.1f, &next_state, &next_sensors);
 
+  // Compile the current and next states into a vector z
+  float z[] = {
+    next_state.position.x,
+    next_state.position.y,
+    next_state.position.z,
+    next_state.velocity.x,
+    next_state.velocity.y,
+    next_state.velocity.z,
+    next_state.attitude.roll,
+    next_state.attitude.pitch,
+    next_state.attitude.yaw,
+    next_sensors.gyro.x,
+    next_sensors.gyro.y,
+    next_sensors.gyro.z,
+    
+    state->position.x,
+    state->position.y,
+    state->position.z,
+    state->velocity.x,
+    state->velocity.y,
+    state->velocity.z,
+    state->attitude.roll,
+    state->attitude.pitch,
+    state->attitude.yaw,
+    sensors->gyro.x,
+    sensors->gyro.y,
+    sensors->gyro.z,
+  };
+
+  // c_hat function
   float f_star = 0.0f;
   for (int i = 0; i < N; i++) {
     // Kernel
     float sqdist = 0.0f;
     for (int j = 0; j < D; j++) {
-      float diff = X_train[X_train_idx*D + j] - X_train[i*D + j];
+      float diff = z[j] - X_train[i*D + j];
       sqdist += diff * diff;
     }
-    // for (int j = D/2; j < D; j++) {
-    //   float diff = full_state[j - D/2] - X_train[i*D + j];
-    //   sqdist += diff * diff;
-    // }
     float k = outputscale * expf(-0.5f * sqdist / (lengthscale * lengthscale));
     
     f_star += k * alpha[i];
   }
 
-  thrust_hamin = f_star * y_std + y_mean;
-  control->thrust = thrust_hamin;
+  control->thrust = f_star * y_std + y_mean;
+  control->roll = nominal_control.roll;
+  control->pitch = nominal_control.pitch;
+  control->yaw = nominal_control.yaw;
 }
 
 
-PARAM_GROUP_START(hamin)
+// PARAM_GROUP_START(hamin)
 
-PARAM_ADD(PARAM_UINT8, start, &start)
+// PARAM_ADD(PARAM_UINT8, start, &start)
 
-PARAM_GROUP_STOP(hamin)
+// PARAM_GROUP_STOP(hamin)
 
 
-LOG_GROUP_START(hamin)
+// LOG_GROUP_START(hamin)
 
-LOG_ADD(LOG_FLOAT, thrust, &thrust_hamin)
+// LOG_ADD(LOG_FLOAT, thrust, &thrust_hamin)
 
-LOG_GROUP_STOP(hamin)
+// LOG_GROUP_STOP(hamin)
