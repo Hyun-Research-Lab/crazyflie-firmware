@@ -62,10 +62,12 @@ extern const float lengthscale;
 extern const float outputscale;
 extern const float noise;
 
+float temp1 = 0.0f;
+float temp2 = 0.0f;
+
 void model(const state_t* state, const sensorData_t* sensors, control_t* control, float dt, state_t* next_state, sensorData_t* next_sensors) {
   // Diagonal of the inertia matrix
   struct vec J = mkvec(16.571710e-6f, 16.655602e-6f, 29.261652e-6f);
-  struct vec J_inv = mkvec(1.0f/16.571710e-6f, 1.0f/16.655602e-6f, 1.0f/29.261652e-6f);
 
   // Current state
   struct vec x = mkvec(state->position.x, state->position.y, state->position.z); // m
@@ -92,9 +94,9 @@ void model(const state_t* state, const sensorData_t* sensors, control_t* control
 
   // System dynamics
   struct vec x_dot = v;
-  struct vec v_dot = vsub(vscl(GRAVITY_MAGNITUDE, vbasis(2)), vscl(f/CF_MASS, mvmul(R, vbasis(2))));
+  struct vec v_dot = vsub(vscl(f/CF_MASS, mvmul(R, vbasis(2))), vscl(GRAVITY_MAGNITUDE, vbasis(2)));
   struct mat33 R_dot = mmul(R, mcrossmat(W));
-  struct vec W_dot = veltmul(J_inv, vsub(M, vcross(W, veltmul(J, W))));
+  struct vec W_dot = veltdiv(vsub(M, vcross(W, veltmul(J, W))), J);
 
   // Estimate the next state
   struct vec x_next = vadd(x, vscl(dt, x_dot)); // m
@@ -153,7 +155,17 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   if (!RATE_DO_EXECUTE(RATE_100_HZ, tick)) {
     return;
   }
-  
+
+  // Disable controller in manual mode if thrust is low
+  if (setpoint->mode.z == modeDisable && setpoint->thrust < 1000.0f) {
+    control->controlMode = controlModeLegacy;
+    control->thrust = 0.0f;
+    control->roll = 0;
+    control->pitch = 0;
+    control->yaw = 0;
+    return;
+  }
+
   // Calculate the nominal control (u_bar) using the PID controller
   control_t nominal_control;
   controllerPid(&nominal_control, setpoint, sensors, state, 0); // Set stabilizerStep to 0 so the controller is always run when called
@@ -164,32 +176,39 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   model(state, sensors, &nominal_control, 0.1f, &next_state, &next_sensors);
 
   // Compile the current and next states into a vector z
-  float z[] = {
-    next_state.position.x,
-    next_state.position.y,
-    next_state.position.z,
-    next_state.velocity.x,
-    next_state.velocity.y,
-    next_state.velocity.z,
-    next_state.attitude.roll,
-    next_state.attitude.pitch,
-    next_state.attitude.yaw,
-    next_sensors.gyro.x,
-    next_sensors.gyro.y,
-    next_sensors.gyro.z,
+  // This doesn't work yet because there is not enough training data
+  // float z[] = {
+  //   next_state.position.x,
+  //   next_state.position.y,
+  //   next_state.position.z,
+  //   next_state.velocity.x,
+  //   next_state.velocity.y,
+  //   next_state.velocity.z,
+  //   next_state.attitude.roll,
+  //   next_state.attitude.pitch,
+  //   next_state.attitude.yaw,
+  //   next_sensors.gyro.x,
+  //   next_sensors.gyro.y,
+  //   next_sensors.gyro.z,
     
-    state->position.x,
-    state->position.y,
-    state->position.z,
-    state->velocity.x,
-    state->velocity.y,
-    state->velocity.z,
-    state->attitude.roll,
-    state->attitude.pitch,
-    state->attitude.yaw,
-    sensors->gyro.x,
-    sensors->gyro.y,
-    sensors->gyro.z,
+  //   state->position.x,
+  //   state->position.y,
+  //   state->position.z,
+  //   state->velocity.x,
+  //   state->velocity.y,
+  //   state->velocity.z,
+  //   state->attitude.roll,
+  //   state->attitude.pitch,
+  //   state->attitude.yaw,
+  //   sensors->gyro.x,
+  //   sensors->gyro.y,
+  //   sensors->gyro.z,
+  // };
+
+  // Angular data is based on sample 25 of X_train (lines 50-51 of gp_model_params.c)
+  float z[] = {
+    0.0f, 0.0f, next_state.position.z, 0.0f, 0.0f, next_state.velocity.z, 2.490107774734497f, 4.387826919555664f, 5.534927845001221f, -6.86445951461792f, 26.700176239013672f, 1.1134339570999146f,
+    0.0f, 0.0f, state->position.z, 0.0f, 0.0f, state->velocity.z, 2.608269453048706f, 4.135937213897705f, 5.449484825134277f, 2.5307137966156006f, -12.108437538146973f, 0.6779234409332275f,
   };
 
   // c_hat function
@@ -205,11 +224,15 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     
     f_star += k * alpha[i];
   }
+  f_star = f_star * y_std + y_mean;
 
-  control->thrust = f_star * y_std + y_mean;
+  control->thrust = f_star;
   control->roll = nominal_control.roll;
   control->pitch = nominal_control.pitch;
   control->yaw = nominal_control.yaw;
+
+  temp1 = nominal_control.thrust;
+  temp2 = f_star;
 }
 
 
@@ -220,8 +243,9 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 // PARAM_GROUP_STOP(hamin)
 
 
-// LOG_GROUP_START(hamin)
+LOG_GROUP_START(hamin)
 
-// LOG_ADD(LOG_FLOAT, thrust, &thrust_hamin)
+LOG_ADD(LOG_FLOAT, temp1, &temp1)
+LOG_ADD(LOG_FLOAT, temp2, &temp2)
 
-// LOG_GROUP_STOP(hamin)
+LOG_GROUP_STOP(hamin)
