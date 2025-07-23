@@ -139,6 +139,7 @@ typedef struct controllerLee2_s {
 
   uint8_t trajectory;
   float l;
+  float follower_yaw;
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
@@ -173,6 +174,7 @@ static controllerLee2_t g_self2 = {
 
   .trajectory = 0,
   .l = 0,
+  .follower_yaw = 0.0f,
 };
 
 static inline struct mat33 vouter(struct vec a, struct vec b) {
@@ -241,7 +243,7 @@ void p2pCB(P2PPacket* packet) {
   struct vec re_d;
   struct vec re_d_dot;
   struct vec re_d_ddot;
-  struct vec b1_d = vbasis(0);
+  struct vec b1_d = mkvec(cosf(self->follower_yaw), sinf(self->follower_yaw), 0);
 
   // Straight line
   if (self->trajectory == 0) {
@@ -708,6 +710,7 @@ PARAM_ADD(PARAM_FLOAT, flap_amp, &g_self2.flap_amp)
 PARAM_ADD(PARAM_FLOAT, flap_phase, &g_self2.flap_phase)
 
 PARAM_ADD(PARAM_UINT8, trajectory, &g_self2.trajectory)
+PARAM_ADD(PARAM_FLOAT, follower_yaw, &g_self2.follower_yaw)
 
 PARAM_GROUP_STOP(ctrlLee2)
 
