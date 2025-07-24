@@ -57,9 +57,8 @@ extern const unsigned int D;
 extern const float X_train[];
 extern const float y_mean;
 extern const float y_std;
-extern const float alpha[];
-extern const float lengthscale;
-extern const float outputscale;
+extern const float alpha_times_outputscale[];
+extern const float lengthscale_sq[];
 extern const float noise;
 
 float nominal_thrust = 0.0f;
@@ -175,42 +174,42 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   // Estimate the next state after a given time if the nominal control is applied
   state_t next_state;
   sensorData_t next_sensors;
-  model(state, sensors, &nominal_control, 0.1f, &next_state, &next_sensors);
+  model(state, sensors, &nominal_control, 0.01f, &next_state, &next_sensors);
 
   // Compile the current and next states into a vector z
   // This doesn't work yet because there is not enough training data
-  // float z[] = {
-  //   next_state.position.x,
-  //   next_state.position.y,
-  //   next_state.position.z,
-  //   next_state.velocity.x,
-  //   next_state.velocity.y,
-  //   next_state.velocity.z,
-  //   next_state.attitude.roll,
-  //   next_state.attitude.pitch,
-  //   next_state.attitude.yaw,
-  //   next_sensors.gyro.x,
-  //   next_sensors.gyro.y,
-  //   next_sensors.gyro.z,
-    
-  //   state->position.x,
-  //   state->position.y,
-  //   state->position.z,
-  //   state->velocity.x,
-  //   state->velocity.y,
-  //   state->velocity.z,
-  //   state->attitude.roll,
-  //   state->attitude.pitch,
-  //   state->attitude.yaw,
-  //   sensors->gyro.x,
-  //   sensors->gyro.y,
-  //   sensors->gyro.z,
-  // };
-
   float z[] = {
-    0.0f, 0.0f, next_state.position.z, 0.0f, 0.0f, next_state.velocity.z, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-    0.0f, 0.0f, state->position.z, 0.0f, 0.0f, state->velocity.z, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+    next_state.position.x,
+    next_state.position.y,
+    next_state.position.z,
+    next_state.velocity.x,
+    next_state.velocity.y,
+    next_state.velocity.z,
+    next_state.attitude.roll,
+    next_state.attitude.pitch,
+    next_state.attitude.yaw,
+    next_sensors.gyro.x,
+    next_sensors.gyro.y,
+    next_sensors.gyro.z,
+    
+    state->position.x,
+    state->position.y,
+    state->position.z,
+    state->velocity.x,
+    state->velocity.y,
+    state->velocity.z,
+    state->attitude.roll,
+    state->attitude.pitch,
+    state->attitude.yaw,
+    sensors->gyro.x,
+    sensors->gyro.y,
+    sensors->gyro.z,
   };
+
+  // float z[] = {
+  //   0.0f, 0.0f, next_state.position.z, 0.0f, 0.0f, next_state.velocity.z, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+  //   0.0f, 0.0f, state->position.z, 0.0f, 0.0f, state->velocity.z, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+  // };
   
   // Data is based on sample 25 of X_train (lines 50-51 of gp_model_params.c)
   // float z[] = {
@@ -239,11 +238,11 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     float sqdist = 0.0f;
     for (int j = 0; j < D; j++) {
       float diff = z[j] - X_train[i*D + j];
-      sqdist += diff * diff;
+      sqdist += diff * diff / lengthscale_sq[j];
     }
-    float k = outputscale * expf(-0.5f * sqdist / (lengthscale * lengthscale));
-    
-    f_star += k * alpha[i];
+    float rbf_kernel = expf(-0.5f * sqdist);
+
+    f_star += rbf_kernel * alpha_times_outputscale[i];
   }
   f_star = f_star * y_std + y_mean;
 
@@ -255,8 +254,8 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   nominal_thrust = nominal_control.thrust;
   learned_thrust = f_star;
 
-  h = state->velocity.z;
-  h_next = next_state.velocity.z;
+  h = state->position.z;
+  h_next = next_state.position.z;
 }
 
 
