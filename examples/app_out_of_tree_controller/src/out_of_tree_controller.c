@@ -61,10 +61,21 @@ extern const float alpha_times_outputscale[];
 extern const float lengthscale_sq[];
 extern const float noise;
 
+float f_star = 0.0f;
 float nominal_thrust = 0.0f;
 float learned_thrust = 0.0f;
-float h = 0.0f;
-float h_next = 0.0f;
+
+float vx_plus = 0.0f;
+float vy_plus = 0.0f;
+float vz_plus = 0.0f;
+float vx = 0.0f;
+float vy = 0.0f;
+float vz = 0.0f;
+float roll = 0.0f;
+float pitch = 0.0f;
+float yaw = 0.0f;
+
+uint8_t use_nominal = 0;
 
 void model(const state_t* state, const sensorData_t* sensors, control_t* control, float dt, state_t* next_state, sensorData_t* next_sensors) {
   // Diagonal of the inertia matrix
@@ -153,7 +164,21 @@ bool controllerOutOfTreeTest() {
 }
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
+  // Calculate the nominal control (u_bar) using the PID controller
+  control_t nominal_control;
+  controllerPid(&nominal_control, setpoint, sensors, state, tick);
+
+  if (use_nominal) {
+    *control = nominal_control;
+    return;
+  }
+
   if (!RATE_DO_EXECUTE(RATE_100_HZ, tick)) {
+    control->controlMode = controlModeLegacy;
+    control->thrust = f_star;
+    control->roll = nominal_control.roll;
+    control->pitch = nominal_control.pitch;
+    control->yaw = nominal_control.yaw;
     return;
   }
 
@@ -167,72 +192,20 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     return;
   }
 
-  // Calculate the nominal control (u_bar) using the PID controller
-  control_t nominal_control;
-  controllerPid(&nominal_control, setpoint, sensors, state, 0); // Set stabilizerStep to 0 so the controller is always run when called
-
   // Estimate the next state after a given time if the nominal control is applied
   state_t next_state;
   sensorData_t next_sensors;
-  model(state, sensors, &nominal_control, 0.01f, &next_state, &next_sensors);
+  model(state, sensors, &nominal_control, 0.05f, &next_state, &next_sensors);
 
   // Compile the current and next states into a vector z
   // This doesn't work yet because there is not enough training data
   float z[] = {
-    next_state.position.x,
-    next_state.position.y,
-    next_state.position.z,
-    next_state.velocity.x,
-    next_state.velocity.y,
     next_state.velocity.z,
-    next_state.attitude.roll,
-    next_state.attitude.pitch,
-    next_state.attitude.yaw,
-    next_sensors.gyro.x,
-    next_sensors.gyro.y,
-    next_sensors.gyro.z,
-    
-    state->position.x,
-    state->position.y,
-    state->position.z,
-    state->velocity.x,
-    state->velocity.y,
     state->velocity.z,
-    state->attitude.roll,
-    state->attitude.pitch,
-    state->attitude.yaw,
-    sensors->gyro.x,
-    sensors->gyro.y,
-    sensors->gyro.z,
   };
 
-  // float z[] = {
-  //   0.0f, 0.0f, next_state.position.z, 0.0f, 0.0f, next_state.velocity.z, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-  //   0.0f, 0.0f, state->position.z, 0.0f, 0.0f, state->velocity.z, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-  // };
-  
-  // Data is based on sample 25 of X_train (lines 50-51 of gp_model_params.c)
-  // float z[] = {
-  //   0.0f, 0.0f, next_state.position.z, 0.0f, 0.0f, next_state.velocity.z, 2.490107774734497f, 4.387826919555664f, 5.534927845001221f, -6.86445951461792f, 26.700176239013672f, 1.1134339570999146f,
-  //   0.0f, 0.0f, state->position.z, 0.0f, 0.0f, state->velocity.z, 2.608269453048706f, 4.135937213897705f, 5.449484825134277f, 2.5307137966156006f, -12.108437538146973f, 0.6779234409332275f,
-  // };
-  // float z[] = {
-  //   0.12145594507455826f, 0.10242552310228348f, 0.14673535525798798f, -0.09443437308073044f, -0.12770600616931915f, 0.4041600227355957f, 2.490107774734497f, 4.387826919555664f, 5.534927845001221f, -6.86445951461792f, 26.700176239013672f, 1.1134339570999146f,
-  //   0.11909312754869461f, 0.10229012370109558f, 0.11172748357057571f, -0.03951223939657211f, -0.1071283146739006f, 0.3232017755508423f, 2.608269453048706f, 4.135937213897705f, 5.449484825134277f, 2.5307137966156006f, -12.108437538146973f, 0.6779234409332275f,
-  // };
-
-  // Data is based on sample 13 of X_train (lines 26-27 of gp_model_params.c)
-  // float z[] = {
-  //   0.0f, 0.0f, next_state.position.z, 0.0f, 0.0f, next_state.velocity.z, 1.6219520568847656f, 1.6642069816589355f, 7.579146385192871f, -29.20958709716797f, -5.279177665710449f, -12.663033485412598f,
-  //   0.0f, 0.0f, state->position.z, 0.0f, 0.0f, state->velocity.z, 2.1424612998962402f, 1.9175270795822144f, 7.292835235595703f, 10.972124099731445f, 14.886591911315918f, 1.2260934114456177f,
-  // };
-  // float z[] = {
-  //   0.0023319972679018974f, -0.008198481984436512f, 0.030524887144565582f, -0.06877957284450531f, -0.11424080282449722f, 0.01421481091529131f, 1.6219520568847656f, 1.6642069816589355f, 7.579146385192871f, -29.20958709716797f, -5.279177665710449f, -12.663033485412598f,
-  //   -0.0018133188132196665f, -0.012403649277985096f, 0.029459219425916672f, -0.08800807595252991f, -0.1298791617155075f, -0.0010113664902746677f, 2.1424612998962402f, 1.9175270795822144f, 7.292835235595703f, 10.972124099731445f, 14.886591911315918f, 1.2260934114456177f,
-  // };
-
   // c_hat function
-  float f_star = 0.0f;
+  f_star = 0.0f;
   for (int i = 0; i < N; i++) {
     // Kernel
     float sqdist = 0.0f;
@@ -254,23 +227,38 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   nominal_thrust = nominal_control.thrust;
   learned_thrust = f_star;
 
-  h = state->position.z;
-  h_next = next_state.position.z;
+  vx_plus = next_state.velocity.x;
+  vy_plus = next_state.velocity.y;
+  vz_plus = next_state.velocity.z;
+  vx = state->velocity.x;
+  vy = state->velocity.y;
+  vz = state->velocity.z;
+  roll = state->attitude.roll;
+  pitch = state->attitude.pitch;
+  yaw = state->attitude.yaw;
 }
 
 
-// PARAM_GROUP_START(hamin)
+PARAM_GROUP_START(hamin)
 
-// PARAM_ADD(PARAM_UINT8, start, &start)
+PARAM_ADD(PARAM_UINT8, use_nominal, &use_nominal)
 
-// PARAM_GROUP_STOP(hamin)
+PARAM_GROUP_STOP(hamin)
 
 
 LOG_GROUP_START(hamin)
 
 LOG_ADD(LOG_FLOAT, nominal_thrust, &nominal_thrust)
 LOG_ADD(LOG_FLOAT, learned_thrust, &learned_thrust)
-LOG_ADD(LOG_FLOAT, h, &h)
-LOG_ADD(LOG_FLOAT, h_next, &h_next)
+
+LOG_ADD(LOG_FLOAT, vx_plus, &vx_plus)
+LOG_ADD(LOG_FLOAT, vy_plus, &vy_plus)
+LOG_ADD(LOG_FLOAT, vz_plus, &vz_plus)
+LOG_ADD(LOG_FLOAT, vx, &vx)
+LOG_ADD(LOG_FLOAT, vy, &vy)
+LOG_ADD(LOG_FLOAT, vz, &vz)
+LOG_ADD(LOG_FLOAT, roll, &roll)
+LOG_ADD(LOG_FLOAT, pitch, &pitch)
+LOG_ADD(LOG_FLOAT, yaw, &yaw)
 
 LOG_GROUP_STOP(hamin)
