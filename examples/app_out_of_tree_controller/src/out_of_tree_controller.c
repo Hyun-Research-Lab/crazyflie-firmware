@@ -65,17 +65,18 @@ float f_star = 0.0f;
 float nominal_thrust = 0.0f;
 float learned_thrust = 0.0f;
 
-float vx_plus = 0.0f;
-float vy_plus = 0.0f;
-float vz_plus = 0.0f;
-float vx = 0.0f;
-float vy = 0.0f;
-float vz = 0.0f;
-float roll = 0.0f;
-float pitch = 0.0f;
-float yaw = 0.0f;
-
 uint8_t use_nominal = 0;
+
+typedef union data_s {
+  struct {
+    float vbz_plus;
+    float vbz;
+    float R33;
+  };
+  float z[3];
+} data_t;
+
+data_t data;
 
 void model(const state_t* state, const sensorData_t* sensors, control_t* control, float dt, state_t* next_state, sensorData_t* next_sensors) {
   // Diagonal of the inertia matrix
@@ -130,6 +131,32 @@ void model(const state_t* state, const sensorData_t* sensors, control_t* control
   next_sensors->gyro.x = degrees(W_next.x);
   next_sensors->gyro.y = degrees(W_next.y);
   next_sensors->gyro.z = degrees(W_next.z);
+}
+
+void model2(const state_t* state, control_t* control, float dt, data_t *data) {
+  // Current state
+  struct vec v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z); // m/s
+  struct mat33 R = quat2rotmat(mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w));
+  float vbz = mvmul(mtranspose(R), v).z; // m/s
+  
+  // Control input
+  float f = 0.0f; // N
+  if (control->controlMode == controlModeLegacy) {
+    f = control->thrust / UINT16_MAX * powerDistributionGetMaxThrust();
+  } else if (control->controlMode == controlModeForceTorque) {
+    f = control->thrustSi;
+  }
+
+  // System dynamics
+  float vbz_dot = f / CF_MASS - R.m[2][2] * GRAVITY_MAGNITUDE;
+
+  // Estimate the next state
+  float vbz_next = vbz + vbz_dot * dt; // m/s
+
+  // Set data
+  data->vbz_plus = vbz_next;
+  data->vbz = vbz;
+  data->R33 = R.m[2][2];
 }
 
 void appMain() {
@@ -197,12 +224,14 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   sensorData_t next_sensors;
   model(state, sensors, &nominal_control, 0.05f, &next_state, &next_sensors);
 
-  // Compile the current and next states into a vector z
-  // This doesn't work yet because there is not enough training data
-  float z[] = {
-    next_state.velocity.z,
-    state->velocity.z,
-  };
+  // // Compile the current and next states into a vector z
+  // // This doesn't work yet because there is not enough training data
+  // float z[] = {
+  //   next_state.velocity.z,
+  //   state->velocity.z,
+  // };
+
+  model2(state, &nominal_control, 0.05f, &data);
 
   // c_hat function
   f_star = 0.0f;
@@ -210,7 +239,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     // Kernel
     float sqdist = 0.0f;
     for (int j = 0; j < D; j++) {
-      float diff = z[j] - X_train[i*D + j];
+      float diff = data.z[j] - X_train[i*D + j];
       sqdist += diff * diff / lengthscale_sq[j];
     }
     float rbf_kernel = expf(-0.5f * sqdist);
@@ -226,16 +255,6 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 
   nominal_thrust = nominal_control.thrust;
   learned_thrust = f_star;
-
-  vx_plus = next_state.velocity.x;
-  vy_plus = next_state.velocity.y;
-  vz_plus = next_state.velocity.z;
-  vx = state->velocity.x;
-  vy = state->velocity.y;
-  vz = state->velocity.z;
-  roll = state->attitude.roll;
-  pitch = state->attitude.pitch;
-  yaw = state->attitude.yaw;
 }
 
 
@@ -251,14 +270,8 @@ LOG_GROUP_START(hamin)
 LOG_ADD(LOG_FLOAT, nominal_thrust, &nominal_thrust)
 LOG_ADD(LOG_FLOAT, learned_thrust, &learned_thrust)
 
-LOG_ADD(LOG_FLOAT, vx_plus, &vx_plus)
-LOG_ADD(LOG_FLOAT, vy_plus, &vy_plus)
-LOG_ADD(LOG_FLOAT, vz_plus, &vz_plus)
-LOG_ADD(LOG_FLOAT, vx, &vx)
-LOG_ADD(LOG_FLOAT, vy, &vy)
-LOG_ADD(LOG_FLOAT, vz, &vz)
-LOG_ADD(LOG_FLOAT, roll, &roll)
-LOG_ADD(LOG_FLOAT, pitch, &pitch)
-LOG_ADD(LOG_FLOAT, yaw, &yaw)
+LOG_ADD(LOG_FLOAT, vbz_plus, &data.vbz_plus)
+LOG_ADD(LOG_FLOAT, vbz, &data.vbz)
+LOG_ADD(LOG_FLOAT, R33, &data.R33)
 
 LOG_GROUP_STOP(hamin)
