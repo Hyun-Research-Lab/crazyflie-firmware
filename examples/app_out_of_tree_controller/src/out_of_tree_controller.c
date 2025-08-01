@@ -621,9 +621,12 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       -radians(setpoint->attitude.pitch), // This is in the legacy coordinate system where pitch is inverted
       desiredYaw)));
 
-    // struct vec b3 = mcolumn(R, 2);
-    // struct vec b3_d = mcolumn(R_d, 2);
-    // self->F_d_bar = vscl(self->f/vdot(b3_d, b3), b3_d);
+    if (self->node == 0) {
+      struct vec b3 = mcolumn(R, 2);
+      struct vec b3_d = mcolumn(R_d, 2);
+      struct vec F_d = vscl(self->f/vdot(b3_d, b3), b3_d);
+      self->F_d_bar = vsub(F_d, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
+    }
   }
 
   // Calculate M
