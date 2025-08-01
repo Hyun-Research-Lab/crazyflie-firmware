@@ -26,6 +26,7 @@
 #include "platform_defaults.h"
 #include "bicopterdeck.h"
 #include "pm.h"
+#include "math3d.h"
 
 #if (!defined(CONFIG_MOTORS_REQUIRE_ARMING) || (CONFIG_MOTORS_REQUIRE_ARMING == 0)) && defined(CONFIG_MOTORS_DEFAULT_IDLE_THRUST) && (CONFIG_MOTORS_DEFAULT_IDLE_THRUST > 0)
 #error "CONFIG_MOTORS_REQUIRE_ARMING must be defined and not set to 0 if CONFIG_MOTORS_DEFAULT_IDLE_THRUST is greater than 0"
@@ -84,6 +85,14 @@ static uint16_t capMinThrust(float thrust, uint32_t minThrust) {
     return thrust;
 }
 
+// logging
+static float m1_pwm;
+static float m4_pwm;
+
+// trim parameters
+static float pwmAdjust1 = 1.0f;
+static float pwmAdjust4 = 1.0f;
+
 static void powerDistributionLegacy(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped)
 {
     // DSHOT
@@ -97,74 +106,47 @@ static void powerDistributionLegacy(const control_t *control, motors_thrust_unca
     s_servo2_angle = control->roll;
 }
 
+// define Apinv matrix as a bunch of arrays
+static float a1[6] = {0.00000000f, 0.10868491f, 0.00000000f,
+    0.98804466f, 0.00000000f, 0.00000000f};
+
+static float a2[6] = {0.71414565f, -0.00000000f, -7.74666470f,
+    -0.00000000f, 0.00000000f, 0.00000000f};
+
+static float a3[6] = {0.00000000f, 0.00000000f, 0.00000000f,
+    0.00000000f, 0.00000000f, 1.00000000f};
+
+static float a4[6] = {7.74666470f, -0.00000000f, 0.71414565f,
+    -0.00000000f, 0.00000000f, 0.00000000f};
 static void powerDistributionForceTorque(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
-//     static float motorForces[STABILIZER_NR_OF_MOTORS];
 
-//     const float arm = 0.707106781f * armLength;
-//     const float rollPart = 0.25f / arm * control->torqueX;
-//     const float pitchPart = 0.25f / arm * control->torqueY;
-//     const float thrustPart = 0.25f * control->thrustSi; // N (per rotor)
-//     const float yawPart = 0.25f * control->torqueZ / thrustToTorque;
-
-//     motorForces[0] = thrustPart - rollPart - pitchPart - yawPart;
-//     motorForces[1] = thrustPart - rollPart + pitchPart + yawPart;
-//     motorForces[2] = thrustPart + rollPart + pitchPart - yawPart;
-//     motorForces[3] = thrustPart + rollPart - pitchPart + yawPart;
-
-//   for (int motorIndex = 0; motorIndex < STABILIZER_NR_OF_MOTORS; motorIndex++) {
-//         float motorForce = motorForces[motorIndex];
-//     if (motorForce < 0.0f) {
-//             motorForce = 0.0f;
-//         }
-
-//         float motor_pwm = (-pwmToThrustB + sqrtf(pwmToThrustB * pwmToThrustB + 4.0f * pwmToThrustA * motorForce)) / (2.0f * pwmToThrustA);
-//         motorThrustUncapped->list[motorIndex] = motor_pwm * UINT16_MAX;
-//     }
-
-    //   DEBUG_PRINT("CONTROL: %f %f %f %f\n", (double)control->thrustSi, (double)control->torqueX, (double)control->torqueY, (double)control->torqueZ);
-
-    // float cappedThrust = control->thrustSi;
-    // if (cappedThrust < 0.0f) {
-    //   cappedThrust = 0.0f;
-    // }
-    // else if (cappedThrust > 1.0f) {
-    //   cappedThrust = 1.0f;
-    // }
-
-    // cappedThrust *= 0.10f;
-    // int32_t thrust = cappedThrust * UINT16_MAX;
-
-    // int32_t thrust = control->thrustSi * UINT16_MAX;
-    // motorThrustUncapped->motors.m1 = thrust;
-    // motorThrustUncapped->motors.m2 = thrust;
-    // motorThrustUncapped->motors.m3 = thrust;
-    // motorThrustUncapped->motors.m4 = thrust;
-}
-
-static void powerDistributionForce(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
-    // Not implemented yet
-}
-
-static void powerDistributionWrench(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
-
-
-    // TODO: implement the actual equivalent wrench mapping
-    // by taking in the desired wrench (control->wrench) and converting it to
-    // the servo angles (in deg) and the motorThrustUncapped values (0 to 65535)
-
-    // get the desired force to be produced by each motor
-    float m1_force = control->Fz / 2.0f;
-    float m4_force = control->Fz / 2.0f;
-
-    // set the servo angles in degrees
-    s_servo1_angle = 0.0f;
-    s_servo2_angle = 0.0f;
+    // v = Apinv * [torqueX; torqueY; torqueZ; 0; 0; thrustSi]
     
-    // given the desired force, get the DSHOT value to send to the motors.
-    // control->Fz is the force we want to produce by using both motors in Newtons in range [0, 6.3743225] (0 to 650g).
-    // motorThrustUncapped->motors.m1 is in range [0, UINT16_MAX] which is sent as a DSHOT value
 
-    // Force (N) = pwmToThrustA * Veff^2 + pwmToThrustB * Veff
+    float v1 = a1[0] * control->torqueX + a1[1] * control->torqueY + a1[2] * control->torqueZ + a1[5] * control->thrustSi;
+    float v2 = a2[0] * control->torqueX + a2[1] * control->torqueY + a2[2] * control->torqueZ + a2[5] * control->thrustSi;
+    float v3 = a3[0] * control->torqueX + a3[1] * control->torqueY + a3[2] * control->torqueZ + a3[5] * control->thrustSi;
+    float v4 = a4[0] * control->torqueX + a4[1] * control->torqueY + a4[2] * control->torqueZ + a4[5] * control->thrustSi;
+
+    // calculate the actual bicopter inputs
+    float force_left = 0.25f * sqrtf((v1+v2)*(v1+v2) + (v3+v4)*(v3+v4));
+    float force_right = 0.25f * sqrtf((v1-v2)*(v1-v2) + (v3-v4)*(v3-v4));
+
+    double uncapped_left = (double) degrees(asinf((v1+v2)/(2.0f*force_left)));
+    double uncapped_right = (double) degrees(asinf((v3+v4)/(2.0f*force_right)));
+    
+    // set the servo angle
+    s_servo1_angle = fmax(-15.0, fmin(15.0, uncapped_left));
+    s_servo2_angle = fmax(-15.0, fmin(15.0, uncapped_right));
+
+    // set the PWM values for the BLDC motors
+    #if defined(CONFIG_BICOPTER_NAME_MELONCOPTER)
+    float m1_force = force_right;
+    float m4_force = force_left;
+    #elif defined(CONFIG_BICOPTER_NAME_REDCOPTER)
+    float m1_force = force_left;
+    float m4_force = force_right;
+    #endif
 
     float y1 = (-pwmToThrustB + sqrtf(pwmToThrustB * pwmToThrustB + 4.0f * pwmToThrustA * m1_force)) / (2.0f * pwmToThrustA);
     float y4 = (-pwmToThrustB + sqrtf(pwmToThrustB * pwmToThrustB + 4.0f * pwmToThrustA * m4_force)) / (2.0f * pwmToThrustA);
@@ -178,14 +160,23 @@ static void powerDistributionWrench(const control_t *control, motors_thrust_unca
     float pwm1 = y1 / vBatt;
     float pwm4 = y4 / vBatt;
 
-    motorThrustUncapped->motors.m1 = pwm1 * UINT16_MAX; // left motor
-    motorThrustUncapped->motors.m4 = pwm4 * UINT16_MAX; // right motor
+    // maximum pwm value is 1.0
+    // pwmAdjust is a parameter we can set to scale up or down all thrusts
+    m1_pwm = fmin(pwm1 * pwmAdjust1, 1.0f);
+    m4_pwm = fmin(pwm4 * pwmAdjust4, 1.0f);
+
+    motorThrustUncapped->motors.m1 = m1_pwm * UINT16_MAX; // left motor
+    motorThrustUncapped->motors.m4 = m4_pwm * UINT16_MAX; // right motor
 }
 
-static float m1_pwm;
-static float m4_pwm;
-static float pwmAdjust1 = 1.0f;
-static float pwmAdjust4 = 1.0f;
+static void powerDistributionForce(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
+    // Not implemented yet
+}
+
+static void powerDistributionWrench(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
+    // Not implemented yet
+}
+
 static void powerDistributionLQR(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
     // get the desired force to be produced by each motor
     #if defined(CONFIG_BICOPTER_NAME_MELONCOPTER)

@@ -5,14 +5,6 @@
 
 #define LQR_NUM_STATES 12
 
-#ifndef LQR_NUM_STATES
-#error "LQR_NUM_STATES must be defined to 6 or 12 in the build configuration"
-#endif
-
-#if ((LQR_NUM_STATES != 12) && (LQR_NUM_STATES != 6))
-#error "LQR_NUM_STATES must be either 6 or 12"
-#endif
-
 // This structure contains the mutable state and inmutable parameters
 typedef struct controllerLQR_s {
        // rows of the K matrix

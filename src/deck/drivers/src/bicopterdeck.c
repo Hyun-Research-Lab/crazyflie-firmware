@@ -241,10 +241,10 @@ void servo1SetAngle(double angle)
   servo1Map->setCompare(servo1Map->tim, ccr_val);
 }
 
-// right servo
+// right servo (angle is negative to account for its orientation)
 void servo2SetAngle(double angle)
 {
-  const uint32_t ccr_val = (uint32_t)(600 + right_servo_trim + angle*4);
+  const uint32_t ccr_val = (uint32_t)(600 + right_servo_trim - angle*4);
   servo2Map->setCompare(servo2Map->tim, ccr_val);
 }
 #endif 
