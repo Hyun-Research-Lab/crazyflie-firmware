@@ -503,3 +503,8 @@ config DECK_LOADCELL
     help
         Enables the support for the NAU7802 loadcell.
       
+config DECK_MAGNET
+    bool "Support the Magnet deck"
+    default n
+    help
+        Enables the support for the Magnet deck.
