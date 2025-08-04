@@ -203,36 +203,49 @@ bool servoTest(void)
 
 #if defined(CONFIG_BICOPTER_NAME_REDCOPTER)
 // left servo
+// void servo1SetAngle(double angle)
+// {
+//   // set CCR register
+//   // Duty% = CCR/ARR*100, so CCR = Duty%/100 * ARR
+
+//   double pulse_length_us = 1500.0 + 10.85147 * angle;
+//   double pulse_length_s = pulse_length_us / 1000000;
+//   const uint32_t ccr_val = (uint32_t)(pulse_length_s * SERVO_PWM_PERIOD * SERVO_PWM_FREQUENCY_HZ + left_servo_trim);
+//   servo1Map->setCompare(servo1Map->tim, ccr_val);
+  
+//   #ifdef DEBUG_SERVO
+//     DEBUG_PRINT("Set Angle: %u deg, pulse width: %f us \n", angle, pulse_length_us);
+//   #endif
+// }
+
+// // right servo
+// void servo2SetAngle(double angle)
+// {
+//   // set CCR register
+//   // Duty% = CCR/ARR*100, so CCR = Duty%/100 * ARR
+
+//   double pulse_length_us = 1500.0 + 10.85147 * angle; // found using encoder for system ID
+//   // double pulse_length_us = 1500.0 + angle; // found using encoder for system ID, this is a linear approximation
+//   double pulse_length_s = pulse_length_us / 1000000;
+//   const uint32_t ccr_val = (uint32_t)(pulse_length_s * SERVO_PWM_PERIOD * SERVO_PWM_FREQUENCY_HZ + right_servo_trim);
+//   servo2Map->setCompare(servo2Map->tim, ccr_val);
+  
+//   #ifdef DEBUG_SERVO
+//     DEBUG_PRINT("Set Angle: %u deg, pulse width: %f us \n", angle, pulse_length_us);
+//   #endif
+// }
+
 void servo1SetAngle(double angle)
 {
-  // set CCR register
-  // Duty% = CCR/ARR*100, so CCR = Duty%/100 * ARR
-
-  double pulse_length_us = 1500.0 + 10.85147 * angle;
-  double pulse_length_s = pulse_length_us / 1000000;
-  const uint32_t ccr_val = (uint32_t)(pulse_length_s * SERVO_PWM_PERIOD * SERVO_PWM_FREQUENCY_HZ + left_servo_trim);
+  const uint32_t ccr_val = (uint32_t)(600 + left_servo_trim + angle*4);
   servo1Map->setCompare(servo1Map->tim, ccr_val);
-  
-  #ifdef DEBUG_SERVO
-    DEBUG_PRINT("Set Angle: %u deg, pulse width: %f us \n", angle, pulse_length_us);
-  #endif
 }
 
-// right servo
+// right servo (angle is negative to account for its orientation)
 void servo2SetAngle(double angle)
 {
-  // set CCR register
-  // Duty% = CCR/ARR*100, so CCR = Duty%/100 * ARR
-
-  double pulse_length_us = 1500.0 + 10.85147 * angle; // found using encoder for system ID
-  // double pulse_length_us = 1500.0 + angle; // found using encoder for system ID, this is a linear approximation
-  double pulse_length_s = pulse_length_us / 1000000;
-  const uint32_t ccr_val = (uint32_t)(pulse_length_s * SERVO_PWM_PERIOD * SERVO_PWM_FREQUENCY_HZ + right_servo_trim);
+  const uint32_t ccr_val = (uint32_t)(600 + right_servo_trim - angle*4);
   servo2Map->setCompare(servo2Map->tim, ccr_val);
-  
-  #ifdef DEBUG_SERVO
-    DEBUG_PRINT("Set Angle: %u deg, pulse width: %f us \n", angle, pulse_length_us);
-  #endif
 }
 #else  // MELONCOPTER
 void servo1SetAngle(double angle)
