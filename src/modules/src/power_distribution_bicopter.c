@@ -90,83 +90,29 @@ static float m1_pwm;
 static float m4_pwm;
 
 // trim parameters
-static float pwmAdjust1 = 1.0f;
-static float pwmAdjust4 = 1.0f;
+static float leftMotorMultiplier = 1.0f;
+static float rightMotorMultiplier = 1.0f;
 
 static void powerDistributionLegacy(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped)
 {
     // DSHOT
     // control->thrust is in range [0, 1]
     // motorThrustUncapped->motors.m1 is in range [0, UINT16_MAX]
-    motorThrustUncapped->motors.m1 = control->thrust * UINT16_MAX; // left
-    motorThrustUncapped->motors.m4 = control->thrust * UINT16_MAX; // right
-
+    #if defined(CONFIG_BICOPTER_NAME_MELONCOPTER)
+    motorThrustUncapped->motors.m4 = control->thrust * UINT16_MAX * leftMotorMultiplier; // left
+    motorThrustUncapped->motors.m1 = control->thrust * UINT16_MAX * rightMotorMultiplier; // right
+    #elif defined(CONFIG_BICOPTER_NAME_REDCOPTER)
+    motorThrustUncapped->motors.m1 = control->thrust * UINT16_MAX * leftMotorMultiplier; // left
+    motorThrustUncapped->motors.m4 = control->thrust * UINT16_MAX * rightMotorMultiplier; // right
+    #endif
+    
     // pitch and roll are already in degrees
     s_servo1_angle = control->pitch;
     s_servo2_angle = control->roll;
 }
 
-// define Apinv matrix as a bunch of arrays
-static float a1[6] = {0.00000000f, 0.10868491f, 0.00000000f,
-    0.98804466f, 0.00000000f, 0.00000000f};
-
-static float a2[6] = {0.71414565f, -0.00000000f, -7.74666470f,
-    -0.00000000f, 0.00000000f, 0.00000000f};
-
-static float a3[6] = {0.00000000f, 0.00000000f, 0.00000000f,
-    0.00000000f, 0.00000000f, 1.00000000f};
-
-static float a4[6] = {7.74666470f, -0.00000000f, 0.71414565f,
-    -0.00000000f, 0.00000000f, 0.00000000f};
 static void powerDistributionForceTorque(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
-
-    // v = Apinv * [torqueX; torqueY; torqueZ; 0; 0; thrustSi]
-    
-
-    float v1 = a1[0] * control->torqueX + a1[1] * control->torqueY + a1[2] * control->torqueZ + a1[5] * control->thrustSi;
-    float v2 = a2[0] * control->torqueX + a2[1] * control->torqueY + a2[2] * control->torqueZ + a2[5] * control->thrustSi;
-    float v3 = a3[0] * control->torqueX + a3[1] * control->torqueY + a3[2] * control->torqueZ + a3[5] * control->thrustSi;
-    float v4 = a4[0] * control->torqueX + a4[1] * control->torqueY + a4[2] * control->torqueZ + a4[5] * control->thrustSi;
-
-    // calculate the actual bicopter inputs
-    float force_left = 0.25f * sqrtf((v1+v2)*(v1+v2) + (v3+v4)*(v3+v4));
-    float force_right = 0.25f * sqrtf((v1-v2)*(v1-v2) + (v3-v4)*(v3-v4));
-
-    double uncapped_left = (double) degrees(asinf((v1+v2)/(2.0f*force_left)));
-    double uncapped_right = (double) degrees(asinf((v3+v4)/(2.0f*force_right)));
-    
-    // set the servo angle
-    s_servo1_angle = fmax(-15.0, fmin(15.0, uncapped_left));
-    s_servo2_angle = fmax(-15.0, fmin(15.0, uncapped_right));
-
-    // set the PWM values for the BLDC motors
-    #if defined(CONFIG_BICOPTER_NAME_MELONCOPTER)
-    float m1_force = force_right;
-    float m4_force = force_left;
-    #elif defined(CONFIG_BICOPTER_NAME_REDCOPTER)
-    float m1_force = force_left;
-    float m4_force = force_right;
-    #endif
-
-    float y1 = (-pwmToThrustB + sqrtf(pwmToThrustB * pwmToThrustB + 4.0f * pwmToThrustA * m1_force)) / (2.0f * pwmToThrustA);
-    float y4 = (-pwmToThrustB + sqrtf(pwmToThrustB * pwmToThrustB + 4.0f * pwmToThrustA * m4_force)) / (2.0f * pwmToThrustA);
-    
-    #ifdef CONFIG_ENABLE_THRUST_BAT_COMPENSATED
-    float vBatt = pmGetBatteryVoltage();
-    #else
-    float vBatt = 14.8f; // 4S battery nominal voltage
-    #endif
-
-    float pwm1 = y1 / vBatt;
-    float pwm4 = y4 / vBatt;
-
-    // maximum pwm value is 1.0
-    // pwmAdjust is a parameter we can set to scale up or down all thrusts
-    m1_pwm = fmin(pwm1 * pwmAdjust1, 1.0f);
-    m4_pwm = fmin(pwm4 * pwmAdjust4, 1.0f);
-
-    motorThrustUncapped->motors.m1 = m1_pwm * UINT16_MAX; // left motor
-    motorThrustUncapped->motors.m4 = m4_pwm * UINT16_MAX; // right motor
+    // Not implemented yet
 }
 
 static void powerDistributionForce(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
@@ -180,13 +126,12 @@ static void powerDistributionWrench(const control_t *control, motors_thrust_unca
 static void powerDistributionLQR(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
     // get the desired force to be produced by each motor
     #if defined(CONFIG_BICOPTER_NAME_MELONCOPTER)
-    float m1_force = control->motorRight_N;
-    float m4_force = control->motorLeft_N;
+    float m1_force = control->motorRight_N * rightMotorMultiplier;
+    float m4_force = control->motorLeft_N * leftMotorMultiplier;
     #elif defined(CONFIG_BICOPTER_NAME_REDCOPTER)
-    float m1_force = control->motorLeft_N;
-    float m4_force = control->motorRight_N;
+    float m1_force = control->motorLeft_N * leftMotorMultiplier;
+    float m4_force = control->motorRight_N * rightMotorMultiplier;
     #endif
-
     // set the servo angles in degrees
     // max = 15 deg, min = -15 deg
     s_servo1_angle = fmax(-15, fmin(15, control->servoLeft_deg));
@@ -211,8 +156,8 @@ static void powerDistributionLQR(const control_t *control, motors_thrust_uncappe
 
     // maximum pwm value is 1.0
     // pwmAdjust is a parameter we can set to scale up or down all thrusts
-    m1_pwm = fmin(pwm1 * pwmAdjust1, 1.0f);
-    m4_pwm = fmin(pwm4 * pwmAdjust4, 1.0f);
+    m1_pwm = fmin(pwm1, 1.0f);
+    m4_pwm = fmin(pwm4, 1.0f);
 
     motorThrustUncapped->motors.m1 = m1_pwm * UINT16_MAX; // left motor
     motorThrustUncapped->motors.m4 = m4_pwm * UINT16_MAX; // right motor
@@ -303,8 +248,8 @@ PARAM_GROUP_START(powerDist)
  * common value is between 3000 - 6000.
  */
 PARAM_ADD_CORE(PARAM_UINT32 | PARAM_PERSISTENT, idleThrust, &idleThrust)
-PARAM_ADD(PARAM_FLOAT, pwmAdjust1, &pwmAdjust1)
-PARAM_ADD(PARAM_FLOAT, pwmAdjust4, &pwmAdjust4)
+PARAM_ADD(PARAM_FLOAT, leftMotorMultiplier, &leftMotorMultiplier)
+PARAM_ADD(PARAM_FLOAT, rightMotorMultiplier, &rightMotorMultiplier)
 PARAM_GROUP_STOP(powerDist)
 
 /**
