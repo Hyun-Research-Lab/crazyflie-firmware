@@ -90,8 +90,8 @@ static float m1_pwm;
 static float m4_pwm;
 
 // trim parameters
-static float leftMotorMultiplier = 1.0f;
-static float rightMotorMultiplier = 1.0f;
+static float leftMotorTrim = 1.0f;
+static float rightMotorTrim = 1.0f;
 
 static void powerDistributionLegacy(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped)
 {
@@ -99,11 +99,11 @@ static void powerDistributionLegacy(const control_t *control, motors_thrust_unca
     // control->thrust is in range [0, 1]
     // motorThrustUncapped->motors.m1 is in range [0, UINT16_MAX]
     #if defined(CONFIG_BICOPTER_NAME_MELONCOPTER)
-    motorThrustUncapped->motors.m4 = control->thrust * UINT16_MAX * leftMotorMultiplier; // left
-    motorThrustUncapped->motors.m1 = control->thrust * UINT16_MAX * rightMotorMultiplier; // right
+    motorThrustUncapped->motors.m4 = control->thrust * UINT16_MAX * leftMotorTrim; // left
+    motorThrustUncapped->motors.m1 = control->thrust * UINT16_MAX * rightMotorTrim; // right
     #elif defined(CONFIG_BICOPTER_NAME_REDCOPTER)
-    motorThrustUncapped->motors.m1 = control->thrust * UINT16_MAX * leftMotorMultiplier; // left
-    motorThrustUncapped->motors.m4 = control->thrust * UINT16_MAX * rightMotorMultiplier; // right
+    motorThrustUncapped->motors.m1 = control->thrust * UINT16_MAX * leftMotorTrim; // left
+    motorThrustUncapped->motors.m4 = control->thrust * UINT16_MAX * rightMotorTrim; // right
     #endif
     
     // pitch and roll are already in degrees
@@ -126,11 +126,11 @@ static void powerDistributionWrench(const control_t *control, motors_thrust_unca
 static void powerDistributionLQR(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
     // get the desired force to be produced by each motor
     #if defined(CONFIG_BICOPTER_NAME_MELONCOPTER)
-    float m1_force = control->motorRight_N * rightMotorMultiplier;
-    float m4_force = control->motorLeft_N * leftMotorMultiplier;
+    float m1_force = control->motorRight_N * rightMotorTrim;
+    float m4_force = control->motorLeft_N * leftMotorTrim;
     #elif defined(CONFIG_BICOPTER_NAME_REDCOPTER)
-    float m1_force = control->motorLeft_N * leftMotorMultiplier;
-    float m4_force = control->motorRight_N * rightMotorMultiplier;
+    float m1_force = control->motorLeft_N * leftMotorTrim;
+    float m4_force = control->motorRight_N * rightMotorTrim;
     #endif
     // set the servo angles in degrees
     // max = 15 deg, min = -15 deg
@@ -248,8 +248,8 @@ PARAM_GROUP_START(powerDist)
  * common value is between 3000 - 6000.
  */
 PARAM_ADD_CORE(PARAM_UINT32 | PARAM_PERSISTENT, idleThrust, &idleThrust)
-PARAM_ADD(PARAM_FLOAT, leftMotorMultiplier, &leftMotorMultiplier)
-PARAM_ADD(PARAM_FLOAT, rightMotorMultiplier, &rightMotorMultiplier)
+PARAM_ADD(PARAM_FLOAT, leftMotorTrim, &leftMotorTrim)
+PARAM_ADD(PARAM_FLOAT, rightMotorTrim, &rightMotorTrim)
 PARAM_GROUP_STOP(powerDist)
 
 /**
