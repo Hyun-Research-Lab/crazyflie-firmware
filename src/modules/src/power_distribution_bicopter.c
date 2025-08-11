@@ -134,8 +134,9 @@ static void powerDistributionLQR(const control_t *control, motors_thrust_uncappe
     #endif
     // set the servo angles in degrees
     // max = 15 deg, min = -15 deg
-    s_servo1_angle = fmax(-15, fmin(15, control->servoLeft_deg));
-    s_servo2_angle = fmax(-15, fmin(15, control->servoRight_deg));
+    double max_angle = 30.0;
+    s_servo1_angle = fmax(-max_angle, fmin(max_angle, control->servoLeft_deg));
+    s_servo2_angle = fmax(-max_angle, fmin(max_angle, control->servoRight_deg));
     
     // given the desired force, get the DSHOT value to send to the motors.
     // motorThrustUncapped->motors.m1 is in range [0, UINT16_MAX] which is sent as a DSHOT value

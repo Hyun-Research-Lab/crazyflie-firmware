@@ -24,6 +24,8 @@
 
 extern double s_servo1_angle;
 extern double s_servo2_angle;
+extern float measuredServoLeftDeg;
+extern float measuredServoRightDeg;
 
 /**
  * Servo Initialization

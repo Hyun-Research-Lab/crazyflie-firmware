@@ -27,6 +27,7 @@
 // static uint16_t servo_MAX_us = 2000;
 
 #include "bicopterdeck.h"
+#include "deck_analog.h"
 
 // #define DEBUG_SERVO
 
@@ -44,14 +45,34 @@ extern const MotorPerifDef* servoMapMOSI;
 
 #if defined(CONFIG_BICOPTER_NAME_MELONCOPTER)
 static int16_t left_servo_trim = 32 + 7;
-static int16_t right_servo_trim = -6 - 7;
+static int16_t right_servo_trim = 6 + 7;
+static uint16_t pa6_raw_zero = 2200;
+static uint16_t pa7_raw_zero = 2200;
 #elif defined(CONFIG_BICOPTER_NAME_REDCOPTER)
 static int16_t left_servo_trim = 21; // increasing moves the propeller towards positive Y
 static int16_t right_servo_trim = 6; // decreasing moves the propeller towards positive Y
+static uint16_t pa6_raw_zero = 2242; // left
+static uint16_t pa7_raw_zero = 2225; // right
 #endif
 
 double s_servo1_angle = 0; // LEFT servo in Degrees
 double s_servo2_angle = 0; // RIGHT servo in Degrees
+
+// Add analog reading variables
+static uint16_t pa6_raw = 0;
+static uint16_t pa7_raw = 0;
+
+static float measuredLeftServoAngleDeg = 0.0f;
+static float measuredRightServoAngleDeg = 0.0f;
+
+// TODO: how many degrees per step?
+float pa6ToLeftServoAngle(uint16_t raw) {
+  return -(raw - pa6_raw_zero) * 0.05;
+}
+
+float pa7ToRightServoAngle(uint16_t raw) {
+  return (raw - pa7_raw_zero) * 0.05;
+}
 
 void servo1MapInit(const MotorPerifDef* servoMapSelect)
 {
@@ -160,6 +181,10 @@ void servoInit()
 
   DEBUG_PRINT("servoInit()\n");
 
+  // Initialize ADC for analog readings
+  adcInit();
+  DEBUG_PRINT("ADC Init [OK]\n");
+
   if (!isInit1){
     // CONFIG_DECK_SERVO_USE_IO1
     servo1MapInit(servoMapIO1);
@@ -181,18 +206,49 @@ void servoInit()
   xTaskCreate(bicopterDeckTask, BICOPTERDECK_TASK_NAME, BICOPTERDECK_TASK_STACKSIZE, NULL, BICOPTERDECK_TASK_PRI, NULL);
 }
 
+#define SERVO_BUFFER_LENGTH 10
 void bicopterDeckTask(void* arg)
 {
   systemWaitStart();
   TickType_t xLastWakeTime;
 
   xLastWakeTime = xTaskGetTickCount();
+  uint8_t taskCounter = 0;
+
+  uint16_t pa6_measurements[SERVO_BUFFER_LENGTH] = { 0 };
+  uint16_t pa7_measurements[SERVO_BUFFER_LENGTH] = { 0 };
+  uint8_t i = 0;
 
   while (1) {
-    vTaskDelayUntil(&xLastWakeTime, M2T(20)); // 20 ms = 50 Hz
+    vTaskDelayUntil(&xLastWakeTime, M2T(1)); // 1 ms = 1kHz Hz
 
-    servo1SetAngle(s_servo1_angle);
-    servo2SetAngle(s_servo2_angle);
+    // Read analog values from PA6 and PA7
+    // and add them to the buffer
+    pa6_measurements[i] = analogRead(DECK_GPIO_MISO);
+    pa7_measurements[i] = analogRead(DECK_GPIO_MOSI);
+    i++;
+    i %= SERVO_BUFFER_LENGTH;
+
+    // get running average
+    float pa6_tmp = 0.0f;
+    float pa7_tmp = 0.0f;
+    for(uint8_t j = 0; j < SERVO_BUFFER_LENGTH; j++) {
+      pa6_tmp += pa6_measurements[j];
+      pa7_tmp += pa7_measurements[j];
+    }
+    pa6_raw = pa6_tmp / SERVO_BUFFER_LENGTH;
+    pa7_raw = pa7_tmp / SERVO_BUFFER_LENGTH;
+
+    measuredLeftServoAngleDeg = pa6ToLeftServoAngle(pa6_raw);
+    measuredRightServoAngleDeg = pa7ToRightServoAngle(pa7_raw);
+
+    // set the servo angle every 20 ms
+    taskCounter++;
+    if (taskCounter >= 20) {
+      taskCounter = 0;
+      servo1SetAngle(s_servo1_angle);
+      servo2SetAngle(s_servo2_angle);
+    }
   }
 }
 
@@ -244,7 +300,7 @@ void servo1SetAngle(double angle)
 // right servo (angle is negative to account for its orientation)
 void servo2SetAngle(double angle)
 {
-  const uint32_t ccr_val = (uint32_t)(600 + right_servo_trim - angle*4);
+  const uint32_t ccr_val = (uint32_t)(600 - right_servo_trim - angle*4);
   servo2Map->setCompare(servo2Map->tim, ccr_val);
 }
 #else  // MELONCOPTER
@@ -257,7 +313,7 @@ void servo1SetAngle(double angle)
 // right servo (angle is negative to account for its orientation)
 void servo2SetAngle(double angle)
 {
-  const uint32_t ccr_val = (uint32_t)(600 + right_servo_trim - angle*4);
+  const uint32_t ccr_val = (uint32_t)(600 - right_servo_trim - angle*4);
   servo2Map->setCompare(servo2Map->tim, ccr_val);
 }
 #endif 
@@ -269,7 +325,7 @@ static const DeckDriver bicopter_deck = {
   .name = "bicopterDeck",
 
   .usedPeriph = DECK_USING_TIMER4 | DECK_USING_TIMER3,
-  .usedGpio = DECK_USING_IO_1 | DECK_USING_IO_2,
+  .usedGpio = DECK_USING_IO_1 | DECK_USING_IO_2 | DECK_USING_PA6 | DECK_USING_PA7,
   .requiredEstimator = StateEstimatorTypeKalman,
 
   .init = servoInit,
@@ -292,4 +348,13 @@ PARAM_ADD(PARAM_INT16 | PARAM_PERSISTENT, left_servo_trim, &left_servo_trim)
  * @brief offset the PWM signal for the right servo from 1500 to 1500+right_servo_trim
  */
 PARAM_ADD(PARAM_INT16 | PARAM_PERSISTENT, right_servo_trim, &right_servo_trim)
+
 PARAM_GROUP_STOP(bideck)
+
+LOG_GROUP_START(bideck)
+// 0-4095 read these values
+LOG_ADD(LOG_UINT16, pa6_raw, &pa6_raw)
+LOG_ADD(LOG_UINT16, pa7_raw, &pa7_raw)
+LOG_ADD(LOG_FLOAT, servoLDeg, &measuredLeftServoAngleDeg)
+LOG_ADD(LOG_FLOAT, servoRDeg, &measuredRightServoAngleDeg)
+LOG_GROUP_STOP(bideck)
