@@ -129,9 +129,9 @@ typedef struct controllerLee2_s {
   float ki_rob;
   float sigma_rob;
 
-  float ex_rob;
-  float ev_rob;
-  float ei_rob;
+  struct vec ex_rob;
+  struct vec ev_rob;
+  struct vec ei_rob;
 
   float flap_freq;
   float flap_amp;
@@ -351,17 +351,24 @@ void p2pCB(P2PPacket* packet) {
   float u_m2 =                             -self->kv_geo*self->ev2_geo - beta*(n-1)*self->ev2_geo*ev_norm + vdot(t3_d, re_d_ddot);
 
   // Add a robustness term
-  self->ex_rob = vdot(vsub(re, re_d), t1);
-  self->ev_rob = vdot(vsub(re_dot, re_d_dot), t1);
-  self->ei_rob += self->ex_rob/NETWORK_RATE;
-  self->ei_rob = clamp(self->ei_rob, -self->sigma_rob, self->sigma_rob);
+  self->ex_rob = vsub(re, re_d);
+  self->ev_rob = vsub(re_dot, re_d_dot);
+  self->ei_rob = vadd(self->ei_rob, vdiv(self->ex_rob, NETWORK_RATE));
+  self->ei_rob = vclampscl2(self->ei_rob, -self->sigma_rob, self->sigma_rob);
 
-  struct vec u = vadd3(vscl(u_m1, t2), vscl(u_m2, t3),
-            vscl(-self->kx_rob*self->ex_rob - self->kv_rob*self->ev_rob - self->ki_rob*self->ei_rob + vdot(re_d_ddot, t1), t1));
+  struct mat33 P_onto_re = mscl(1.0f/vdot(re, re), vouter(re, re));
+  struct vec u = vadd3(
+    vscl(u_m1, t2),
+    vscl(u_m2, t3),
+    vadd(mvmul(P_onto_re, vadd3(
+        vscl(-self->kx_rob, self->ex_rob),
+        vscl(-self->kv_rob, self->ev_rob),
+        re_d_ddot)),
+      vscl(-self->ki_rob, self->ei_rob)));
+  // vscl(-self->kx_rob*self->ex_rob - self->kv_rob*self->ev_rob - self->ki_rob*self->ei_rob + vdot(re_d_ddot, t1), t1));
 
   self->F_d_bar = vscl(self->m, vadd(vdiv(F_d_l_bar, m_l), u));
   struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
-  // self->F_d = vscl(self->m, u);
 
   // Send F_d to the controller
   float f = vdot(F_d, mvmul(self->R, vbasis(2)));
@@ -526,9 +533,9 @@ void controllerOutOfTreeInit() {
   self->ev1_geo = 0;
   self->ev2_geo = 0;
 
-  self->ex_rob = 0;
-  self->ev_rob = 0;
-  self->ei_rob = 0;
+  self->ex_rob = vzero();
+  self->ev_rob = vzero();
+  self->ei_rob = vzero();
 }
 
 bool controllerOutOfTreeTest() {
@@ -766,9 +773,9 @@ LOG_ADD(LOG_FLOAT, eR_geo, &g_self2.eR_geo)
 LOG_ADD(LOG_FLOAT, ev1_geo, &g_self2.ev1_geo)
 LOG_ADD(LOG_FLOAT, ev2_geo, &g_self2.ev2_geo)
 
-LOG_ADD(LOG_FLOAT, ex_rob, &g_self2.ex_rob)
-LOG_ADD(LOG_FLOAT, ev_rob, &g_self2.ev_rob)
-LOG_ADD(LOG_FLOAT, ei_rob, &g_self2.ei_rob)
+// LOG_ADD(LOG_FLOAT, ex_rob, &g_self2.ex_rob)
+// LOG_ADD(LOG_FLOAT, ev_rob, &g_self2.ev_rob)
+// LOG_ADD(LOG_FLOAT, ei_rob, &g_self2.ei_rob)
 
 LOG_ADD(LOG_FLOAT, t, &t)
 // LOG_ADD(LOG_FLOAT, l, &g_self2.l)
