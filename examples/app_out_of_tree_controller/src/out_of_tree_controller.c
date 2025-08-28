@@ -201,6 +201,11 @@ static inline struct vec vclampscl2(struct vec value, float min, float max) {
 void p2pCB(P2PPacket* packet) {
   controllerLee2_t* self = &g_self2;
 
+  // Leader does not process any packets
+  if (self->node == 0) {
+    return;
+  }
+
   // Copy time from leader
   if (packet->port == 0) {
     memcpy(&t, packet->data, sizeof(float));
@@ -405,13 +410,10 @@ void appMain() {
     vTaskDelay(M2T(100));
   }
 
-  // Register the callback for followers
-  if (self->node > 0) {
-    p2pRegisterCB(p2pCB);
-  }
+  // Register the callback
+  p2pRegisterCB(p2pCB);
   
   P2PPacket packet;
-  packet.port = self->node;
   packet.size = 11*sizeof(float);
 
   logVarId_t logIdAccX = logGetVarId("acc", "x");
@@ -429,6 +431,7 @@ void appMain() {
       t += 1.0f/NETWORK_RATE;
     }
 
+    packet.port = self->node;
     memcpy(packet.data,                    &t,               sizeof(float));
     memcpy(packet.data + sizeof(float),    &self->m,         sizeof(float));
     memcpy(packet.data + 2*sizeof(float),  &self->F_d_bar.x, sizeof(float));
