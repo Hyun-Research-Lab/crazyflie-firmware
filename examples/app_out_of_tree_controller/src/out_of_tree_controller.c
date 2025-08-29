@@ -389,9 +389,8 @@ void p2pCB(P2PPacket* packet) {
   float yaw = degrees(rpy_d.z);
   
   setpoint_t setpoint;
-  setpoint.mode.x = modeVelocity;
-  setpoint.mode.y = modeVelocity;
-  setpoint.mode.z = modeVelocity;
+  setpoint.mode.roll = modeAbs;
+  setpoint.mode.pitch = modeAbs;
   setpoint.mode.yaw = modeAbs;
 
   setpoint.thrust = thrust;
@@ -580,7 +579,6 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   struct vec v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z);
   struct quat q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
   struct mat33 R = quat2rotmat(q);
-  // self->rpy = quat2rpy(q);
   struct vec W = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z));
 
   float desiredYaw = 0;
@@ -602,9 +600,14 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   
   // Calculate f and R_d
   struct mat33 R_d;
-  if (setpoint->mode.x == modeAbs || setpoint->mode.y == modeAbs || setpoint->mode.z == modeAbs) {
+
+  // Position setpoint
+  if (setpoint->mode.x == modeAbs && setpoint->mode.y == modeAbs && setpoint->mode.z == modeAbs) {
     struct vec x_d = mkvec(setpoint->position.x, setpoint->position.y, setpoint->position.z);
     struct vec v_d = mkvec(setpoint->velocity.x, setpoint->velocity.y, setpoint->velocity.z);
+    if (setpoint->velocity_body) {
+      v_d = mvmul(R, v_d); // Convert body frame velocity to world frame
+    }
     struct vec a_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z);
     struct vec b1_d = mkvec(cosf(desiredYaw), sinf(desiredYaw), 0);
 
@@ -632,6 +635,47 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
     R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
 
+  // Velocity setpoint
+  } else if (setpoint->mode.x == modeVelocity && setpoint->mode.y == modeVelocity) {
+    struct vec v_d = mkvec(setpoint->velocity.x, setpoint->velocity.y, setpoint->velocity.z);
+    if (setpoint->velocity_body) {
+      v_d = mvmul(R, v_d); // Convert body frame velocity to world frame
+    }
+    struct vec a_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z);
+    struct vec b1_d = mkvec(cosf(desiredYaw), sinf(desiredYaw), 0);
+
+    self->ev = vsub(v, v_d);
+    self->ei = vadd(self->ei, vscl(dt, self->ev));
+    // self->ei = vclampscl2(self->ei, -self->sigma, self->sigma);
+    
+    self->F_d_bar = vscl(self->m, vadd3(
+      vscl(-self->kv, self->ev),
+      vscl(-self->ki, self->ei),
+      a_d));
+
+    // Hover setpoint (velocity control in the x/y directions, position control in the z direction)
+    if (setpoint->mode.z == modeAbs) {
+      float x3 = state->position.z;
+      float x3_d = setpoint->position.z;
+
+      self->F_d_bar.z += -self->m*self->kx*(x3 - x3_d);
+    }
+
+    // self->F_d_bar = veltmul(mkvec(0.1f, 0.1f, 1.0f), self->F_d_bar);
+    struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
+    self->f = vdot(F_d, mvmul(R, vbasis(2)));
+    
+    if (self->f < 0.01f) {
+      self->ei = vzero();
+      self->eI = vzero();
+      resetFilterBuffers(self);
+    }
+
+    struct vec b3_d = vnormalize(F_d);
+    struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
+    R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
+
+  // Manual setpoint
   } else {
     if (setpoint->mode.z == modeDisable && setpoint->thrust < 1000) {
       control->controlMode = controlModeForceTorque;
@@ -765,9 +809,9 @@ LOG_GROUP_START(ctrlLee2)
 // LOG_ADD(LOG_FLOAT, ev2, &g_self2.ev.y)
 // LOG_ADD(LOG_FLOAT, ev3, &g_self2.ev.z)
 
-// LOG_ADD(LOG_FLOAT, ei1, &g_self2.ei.x)
-// LOG_ADD(LOG_FLOAT, ei2, &g_self2.ei.y)
-// LOG_ADD(LOG_FLOAT, ei3, &g_self2.ei.z)
+LOG_ADD(LOG_FLOAT, ei1, &g_self2.ei.x)
+LOG_ADD(LOG_FLOAT, ei2, &g_self2.ei.y)
+LOG_ADD(LOG_FLOAT, ei3, &g_self2.ei.z)
 
 // LOG_ADD(LOG_FLOAT, eR1, &g_self2.eR.x)
 // LOG_ADD(LOG_FLOAT, eR2, &g_self2.eR.y)
