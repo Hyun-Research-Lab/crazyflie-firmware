@@ -256,43 +256,41 @@ void p2pCB(P2PPacket* packet) {
       case 1:
       case 2:
         re_d = mkvec(0, l, 0);
-        re_d_dot = vzero();
-        re_d_ddot = vzero();
         break;
       
       case 3:
       case 4:
         re_d = mkvec(0, -l, 0);
-        re_d_dot = vzero();
-        re_d_ddot = vzero();
         break;
       
       default:
         break;
     }
+
+    re_d_dot = vzero();
+    re_d_ddot = vzero();
 
   // Square
   } else if (self->trajectory == 1) {
     switch (self->node) {
       case 1:
         re_d = mkvec(0, l, 0);
-        re_d_dot = vzero();
-        re_d_ddot = vzero();
         break;
       
       case 2:
       case 3:
         re_d = mkvec(l, 0, 0);
-        re_d_dot = vzero();
-        re_d_ddot = vzero();
         break;
       
       default:
         break;
     }
 
+    re_d_dot = vzero();
+    re_d_ddot = vzero();
+
   // Flapper
-  } else {
+  } else if (self->trajectory == 2) {
     float theta =      self->flap_amp * cosf(self->flap_freq*t);
     float theta_dot =  self->flap_amp * -self->flap_freq*sinf(self->flap_freq*t);
     float theta_ddot = self->flap_amp * -self->flap_freq*self->flap_freq*cosf(self->flap_freq*t);
@@ -333,6 +331,28 @@ void p2pCB(P2PPacket* packet) {
       default:
         break;
     }
+  
+  // Star
+  } else {
+    switch (self->node) {
+      case 1:
+        re_d = mkvec(0, l, 0);
+        break;
+
+      case 2:
+        re_d = mkvec(l, 0, 0);
+        break;
+
+      case 3:
+        re_d = mkvec(0, -l, 0);
+        break;
+
+      default:
+        break;
+    }
+
+    re_d_dot = vzero();
+    re_d_ddot = vzero();
   }
 
   // Geometric controller
@@ -650,7 +670,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     
     self->F_d_bar = vscl(self->m, vadd3(
       vscl(-self->kv, self->ev),
-      vscl(-self->ki, self->ei),
+      vscl(-4.0f, self->ei),
       a_d));
 
     // Hover setpoint (velocity control in the x/y directions, position control in the z direction)
