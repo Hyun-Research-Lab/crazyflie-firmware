@@ -403,20 +403,16 @@ void p2pCB(P2PPacket* packet) {
   struct vec b2_d = vnormalize(vcross(b3_d, b1_d));
   struct mat33 R_d = mcolumns(vcross(b2_d, b3_d), b2_d, b3_d);
 
-  struct vec rpy_d = quat2rpy(mat2quat(R_d));
-  float roll = degrees(rpy_d.x);
-  float pitch = -degrees(rpy_d.y);
-  float yaw = degrees(rpy_d.z);
-  
+  struct quat quat_d = mat2quat(R_d);
+
   setpoint_t setpoint;
-  setpoint.mode.roll = modeAbs;
-  setpoint.mode.pitch = modeAbs;
-  setpoint.mode.yaw = modeAbs;
+  setpoint.mode.quat = modeAbs;
 
   setpoint.thrust = thrust;
-  setpoint.attitude.roll = roll;
-  setpoint.attitude.pitch = pitch;
-  setpoint.attitude.yaw = yaw;
+  setpoint.attitudeQuaternion.x = quat_d.x;
+  setpoint.attitudeQuaternion.y = quat_d.y;
+  setpoint.attitudeQuaternion.z = quat_d.z;
+  setpoint.attitudeQuaternion.w = quat_d.w;
 
   commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
 }
@@ -445,7 +441,7 @@ void appMain() {
   float acc_norm_init = sqrtf(accX_init*accX_init + accY_init*accY_init + accZ_init*accZ_init);
 
   while (1) {
-    vTaskDelay(M2T(1000/NETWORK_RATE));
+    vTaskDelay(F2T(NETWORK_RATE));
     if (self->node == 0 && vmag(self->F_d_bar) > 1e-6f) {
       t += 1.0f/NETWORK_RATE;
     }
@@ -711,10 +707,14 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     const float max_thrust = powerDistributionGetMaxThrust(); // N
     self->f = setpoint->thrust / UINT16_MAX * max_thrust;
 
-    R_d = quat2rotmat(rpy2quat(mkvec(
-      radians(setpoint->attitude.roll),
-      -radians(setpoint->attitude.pitch), // This is in the legacy coordinate system where pitch is inverted
-      desiredYaw)));
+    if (setpoint->mode.quat == modeAbs) {
+      R_d = quat2rotmat(mkquat(setpoint->attitudeQuaternion.x, setpoint->attitudeQuaternion.y, setpoint->attitudeQuaternion.z, setpoint->attitudeQuaternion.w));
+    } else {
+      R_d = quat2rotmat(rpy2quat(mkvec(
+        radians(setpoint->attitude.roll),
+        -radians(setpoint->attitude.pitch), // This is in the legacy coordinate system where pitch is inverted
+        desiredYaw)));
+    }
 
     if (self->node == 0) {
       struct vec b3 = mcolumn(R, 2);
