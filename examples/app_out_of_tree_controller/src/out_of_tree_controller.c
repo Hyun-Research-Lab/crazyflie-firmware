@@ -414,7 +414,7 @@ void p2pCB(P2PPacket* packet) {
   setpoint.attitudeQuaternion.z = quat_d.z;
   setpoint.attitudeQuaternion.w = quat_d.w;
 
-  commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
+  commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_CRTP);
 }
 
 void appMain() {
