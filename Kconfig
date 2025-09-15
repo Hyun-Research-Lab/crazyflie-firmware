@@ -48,13 +48,6 @@ config DEBUG_PRINT_ON_UART1_BAUDRATE
       Set the baudrate of the debug output   
 
 
-config DEBUG_DECK_IGNORE_OWS
-    bool "Do not enumerate OW based expansion decks"
-    default n
-    help
-      Do not enumerate decks discovered by OneWire memory. This might be useful
-      if one deck memory is very wrong. One could use the Crazyflie as a
-      passive onewire memory writer.
 
 endmenu
 
@@ -89,6 +82,21 @@ config PLATFORM_FLAPPER
     select SENSORS_BMI088_SPI
 
 endchoice
+
+config MODIFY_CF_MASS
+    bool "Modify the default mass"
+    default n
+    help
+        Currently, the mass of the platform is only used by these non-default
+        controllers: Mellinger, Brescianini and Lee. If you are not using
+        one of these controllers, modifying the mass has no impact on the flight.
+    
+config MODIFIED_CF_MASS
+    int "Enter the total mass of the platform in milligrams"
+    depends on MODIFY_CF_MASS
+    default 29000 if PLATFORM_CF2
+    default 39300 if PLATFORM_CF21BL
+    default 29000
 
 config BOLT11_BRUSHED
     bool "Bolt 1.1: Use brushed motor driver (HW mod required)"
@@ -203,6 +211,14 @@ config DECK_FORCE
     default "none"
     help
         A colon seperated list of custom drivers to force load or "none".
+
+config DECK_BACKEND_ONEWIRE
+    bool "Enable OneWire deck discovery backend"
+    default y
+    help
+        Enable the OneWire deck discovery backend that scans for decks with
+        OneWire memory chips. Disable this if you want to ignore all
+        OneWire-based deck discovery, which might be useful for debugging.
 
 source src/deck/drivers/src/Kconfig
 
