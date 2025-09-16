@@ -61,6 +61,8 @@ extern const float alpha_times_outputscale[];
 extern const float lengthscale_sq[];
 extern const float noise;
 
+float get_X_train(unsigned int sample_idx, unsigned int data_idx) { return X_train[sample_idx*D + data_idx]; }
+
 float f_star = 0.0f;
 float nominal_thrust = 0.0f;
 float learned_thrust = 0.0f;
@@ -78,7 +80,7 @@ typedef union data_s {
 
 data_t data;
 
-void model2(const state_t* state, control_t* control, float dt, data_t *data) {
+void translation_model(const state_t* state, control_t* control, float dt, data_t *data) {
   // Current state
   struct vec v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z); // m/s
   struct mat33 R = quat2rotmat(mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w));
@@ -103,6 +105,12 @@ void model2(const state_t* state, control_t* control, float dt, data_t *data) {
   data->vbz = vbz;
   data->R33 = R.m[2][2];
 }
+
+// void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const stabilizerStep_t stabilizerStep) {
+//   if (!RATE_DO_EXECUTE(ATTITUDE_RATE, stabilizerStep)) {
+//     return;
+//   }
+// }
 
 void appMain() {
   DEBUG_PRINT("Waiting for activation ...\n");
@@ -139,6 +147,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   // Calculate the nominal control (u_bar) using the PID controller
   control_t nominal_control = {0};
   controllerPid(&nominal_control, setpoint, sensors, state, tick);
+  // controllerLQR(&nominal_control, setpoint, sensors, state, tick);
 
   if (use_nominal) {
     *control = nominal_control;
@@ -165,20 +174,20 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   }
 
   // Estimate the next state after a given time if the nominal control is applied
-  model2(state, &nominal_control, 0.05f, &data);
+  translation_model(state, &nominal_control, 0.05f, &data);
 
   // c_hat function
   f_star = 0.0f;
-  for (int i = 0; i < N; i++) {
+  for (int sample_idx = 0; sample_idx < N; sample_idx++) {
     // Kernel
     float sqdist = 0.0f;
-    for (int j = 0; j < D; j++) {
-      float diff = data.z[j] - X_train[i*D + j];
-      sqdist += diff * diff / lengthscale_sq[j];
+    for (int data_idx = 0; data_idx < D; data_idx++) {
+      float diff = data.z[data_idx] - get_X_train(sample_idx, data_idx);
+      sqdist += diff * diff / lengthscale_sq[data_idx];
     }
     float rbf_kernel = expf(-0.5f * sqdist);
 
-    f_star += rbf_kernel * alpha_times_outputscale[i];
+    f_star += rbf_kernel * alpha_times_outputscale[sample_idx];
   }
   f_star = f_star * y_std + y_mean;
 
