@@ -41,6 +41,7 @@
 
 #include "controller.h"
 #include "controller_pid.h"
+#include "controller_lqr.h"
 #include "commander.h"
 #include "math3d.h"
 #include "physicalConstants.h"
@@ -106,12 +107,6 @@ void translation_model(const state_t* state, control_t* control, float dt, data_
   data->R33 = R.m[2][2];
 }
 
-// void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const stabilizerStep_t stabilizerStep) {
-//   if (!RATE_DO_EXECUTE(ATTITUDE_RATE, stabilizerStep)) {
-//     return;
-//   }
-// }
-
 void appMain() {
   DEBUG_PRINT("Waiting for activation ...\n");
 
@@ -145,8 +140,8 @@ bool controllerOutOfTreeTest() {
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
   // Calculate the nominal control (u_bar) using the PID controller
-  controllerPid(&nominal_control, setpoint, sensors, state, tick);
-  // controllerLQR(&nominal_control, setpoint, sensors, state, tick);
+  // controllerPid(&nominal_control, setpoint, sensors, state, tick);
+  controllerLQR(&nominal_control, setpoint, sensors, state, tick);
 
   if (use_nominal) {
     *control = nominal_control;
@@ -166,6 +161,8 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     control->yaw = 0;
     return;
   }
+
+  // TODO: make sure nominal control is in force torque mode
 
   // Estimate the next state after a given time if the nominal control is applied
   translation_model(state, &nominal_control, 0.05f, &data);
