@@ -88,12 +88,7 @@ void translation_model(const state_t* state, control_t* control, float dt, data_
   float vbz = mvmul(mtranspose(R), v).z; // m/s
   
   // Control input
-  float f = 0.0f; // N
-  if (control->controlMode == controlModeLegacy) {
-    f = control->thrust / UINT16_MAX * powerDistributionGetMaxThrust();
-  } else if (control->controlMode == controlModeForceTorque) {
-    f = control->thrustSi;
-  }
+  float f = control->thrustSi;
 
   // System dynamics
   float vbz_dot = f / CF_MASS - R.m[2][2] * GRAVITY_MAGNITUDE;
@@ -154,15 +149,25 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 
   // Disable controller in manual mode if thrust is low
   if (setpoint->mode.z == modeDisable && setpoint->thrust < 1000.0f) {
-    control->controlMode = controlModeLegacy;
-    control->thrust = 0.0f;
-    control->roll = 0;
-    control->pitch = 0;
-    control->yaw = 0;
+    control->controlMode = controlModeForceTorque;
+    control->thrustSi = 0.0f;
+    control->torqueX = 0.0f;
+    control->torqueY = 0.0f;
+    control->torqueZ = 0.0f;
     return;
   }
 
-  // TODO: make sure nominal control is in force torque mode
+  // Convert nominal control to controlModeForceTorque
+  if (nominal_control.controlMode == controlModeLegacy) {
+    const float arm = 0.707106781f * ARM_LENGTH;
+    control_t temp_control = nominal_control;
+
+    nominal_control.controlMode = controlModeForceTorque;
+    nominal_control.thrustSi =  temp_control.thrust                 / UINT16_MAX * powerDistributionGetMaxThrust();
+    nominal_control.torqueX  =  temp_control.roll   / 2.0f * arm    / UINT16_MAX * powerDistributionGetMaxThrust();
+    nominal_control.torqueY  = -temp_control.pitch  / 2.0f * arm    / UINT16_MAX * powerDistributionGetMaxThrust();
+    nominal_control.torqueZ  = -temp_control.yaw    * THRUST2TORQUE / UINT16_MAX * powerDistributionGetMaxThrust();
+  }
 
   // Estimate the next state after a given time if the nominal control is applied
   translation_model(state, &nominal_control, 0.05f, &data);
@@ -182,10 +187,11 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   }
   f_star = f_star * y_std + y_mean;
 
-  control->thrust = f_star;
-  control->roll = nominal_control.roll;
-  control->pitch = nominal_control.pitch;
-  control->yaw = nominal_control.yaw;
+  control->controlMode = controlModeForceTorque;
+  control->thrustSi = f_star / UINT16_MAX * powerDistributionGetMaxThrust();
+  control->torqueX = nominal_control.torqueX;
+  control->torqueY = nominal_control.torqueY;
+  control->torqueZ = nominal_control.torqueZ;
 }
 
 
