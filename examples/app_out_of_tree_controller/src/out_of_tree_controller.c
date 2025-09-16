@@ -78,61 +78,6 @@ typedef union data_s {
 
 data_t data;
 
-void model(const state_t* state, const sensorData_t* sensors, control_t* control, float dt, state_t* next_state, sensorData_t* next_sensors) {
-  // Diagonal of the inertia matrix
-  struct vec J = mkvec(16.571710e-6f, 16.655602e-6f, 29.261652e-6f);
-
-  // Current state
-  struct vec x = mkvec(state->position.x, state->position.y, state->position.z); // m
-  struct vec v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z); // m/s
-  struct mat33 R = quat2rotmat(mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w));
-  struct vec W = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z)); // rad/s
-
-  // Control input
-  float f = 0.0f; // N
-  struct vec M = vzero(); // Nm
-  
-  if (control->controlMode == controlModeLegacy) {
-    const float arm = 0.707106781f * ARM_LENGTH;
-    f = control->thrust / UINT16_MAX * powerDistributionGetMaxThrust();
-    M = mkvec(
-      control->roll * 2.0f * STABILIZER_NR_OF_MOTORS * arm,
-      -control->pitch * 2.0f * STABILIZER_NR_OF_MOTORS * arm,
-      -control->yaw * STABILIZER_NR_OF_MOTORS * THRUST2TORQUE);
-  
-  } else if (control->controlMode == controlModeForceTorque) {
-    f = control->thrustSi;
-    M = mkvec(control->torqueX, control->torqueY, control->torqueZ);
-  }
-
-  // System dynamics
-  struct vec x_dot = v;
-  struct vec v_dot = vsub(vscl(f/CF_MASS, mvmul(R, vbasis(2))), vscl(GRAVITY_MAGNITUDE, vbasis(2)));
-  struct mat33 R_dot = mmul(R, mcrossmat(W));
-  struct vec W_dot = veltdiv(vsub(M, vcross(W, veltmul(J, W))), J);
-
-  // Estimate the next state
-  struct vec x_next = vadd(x, vscl(dt, x_dot)); // m
-  struct vec v_next = vadd(v, vscl(dt, v_dot)); // m/s
-  struct mat33 R_next = madd(R, mscl(dt, R_dot));
-  struct vec rpy_next = quat2rpy(mat2quat(R_next)); // rad
-  struct vec W_next = vadd(W, vscl(dt, W_dot)); // rad/s
-
-  // Set the next state and sensors
-  next_state->position.x = x_next.x;
-  next_state->position.y = x_next.y;
-  next_state->position.z = x_next.z;
-  next_state->velocity.x = v_next.x;
-  next_state->velocity.y = v_next.y;
-  next_state->velocity.z = v_next.z;
-  next_state->attitude.roll = degrees(rpy_next.x);
-  next_state->attitude.pitch = degrees(rpy_next.y);
-  next_state->attitude.yaw = degrees(rpy_next.z);
-  next_sensors->gyro.x = degrees(W_next.x);
-  next_sensors->gyro.y = degrees(W_next.y);
-  next_sensors->gyro.z = degrees(W_next.z);
-}
-
 void model2(const state_t* state, control_t* control, float dt, data_t *data) {
   // Current state
   struct vec v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z); // m/s
@@ -192,7 +137,7 @@ bool controllerOutOfTreeTest() {
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
   // Calculate the nominal control (u_bar) using the PID controller
-  control_t nominal_control;
+  control_t nominal_control = {0};
   controllerPid(&nominal_control, setpoint, sensors, state, tick);
 
   if (use_nominal) {
@@ -220,17 +165,6 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   }
 
   // Estimate the next state after a given time if the nominal control is applied
-  state_t next_state;
-  sensorData_t next_sensors;
-  model(state, sensors, &nominal_control, 0.05f, &next_state, &next_sensors);
-
-  // // Compile the current and next states into a vector z
-  // // This doesn't work yet because there is not enough training data
-  // float z[] = {
-  //   next_state.velocity.z,
-  //   state->velocity.z,
-  // };
-
   model2(state, &nominal_control, 0.05f, &data);
 
   // c_hat function
