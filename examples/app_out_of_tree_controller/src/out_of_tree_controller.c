@@ -105,23 +105,8 @@ void translation_model(const state_t* state, control_t* control, float dt, data_
 void appMain() {
   DEBUG_PRINT("Waiting for activation ...\n");
 
-  // vTaskDelay(M2T(5000)); // Wait 5 seconds before starting
-
   while(1) {
-    // // Send a manual sepoint
-    // setpoint_t setpoint;
-    // setpoint.mode.roll = modeAbs;
-    // setpoint.mode.pitch = modeAbs;
-    // setpoint.mode.yaw = modeVelocity;
-    
-    // setpoint.attitude.roll = 0.0f;
-    // setpoint.attitude.pitch = 0.0f;
-    // setpoint.attitudeRate.yaw = 0.0f;
-    // setpoint.thrust = 1000.0f;
-
-    // commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_EXTRX);
-
-    vTaskDelay(M2T(100));
+    vTaskDelay(M2T(1000));
   }
 }
 
