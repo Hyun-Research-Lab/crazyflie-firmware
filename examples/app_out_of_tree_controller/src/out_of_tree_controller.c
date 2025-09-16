@@ -62,7 +62,7 @@ extern const float alpha_times_outputscale[];
 extern const float lengthscale_sq[];
 extern const float noise;
 
-float get_X_train(unsigned int sample_idx, unsigned int data_idx) { return X_train[sample_idx*D + data_idx]; }
+static float get_X_train(unsigned int sample_idx, unsigned int data_idx) { return X_train[sample_idx*D + data_idx]; }
 
 float f_star = 0.0f;
 
