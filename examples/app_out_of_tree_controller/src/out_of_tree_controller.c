@@ -64,8 +64,6 @@ extern const float noise;
 float get_X_train(unsigned int sample_idx, unsigned int data_idx) { return X_train[sample_idx*D + data_idx]; }
 
 float f_star = 0.0f;
-float nominal_thrust = 0.0f;
-float learned_thrust = 0.0f;
 
 uint8_t use_nominal = 0;
 
@@ -79,6 +77,8 @@ typedef union data_s {
 } data_t;
 
 data_t data;
+
+control_t nominal_control = {0};
 
 void translation_model(const state_t* state, control_t* control, float dt, data_t *data) {
   // Current state
@@ -145,7 +145,6 @@ bool controllerOutOfTreeTest() {
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
   // Calculate the nominal control (u_bar) using the PID controller
-  control_t nominal_control = {0};
   controllerPid(&nominal_control, setpoint, sensors, state, tick);
   // controllerLQR(&nominal_control, setpoint, sensors, state, tick);
 
@@ -155,11 +154,6 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   }
 
   if (!RATE_DO_EXECUTE(RATE_100_HZ, tick)) {
-    control->controlMode = controlModeLegacy;
-    control->thrust = f_star;
-    control->roll = nominal_control.roll;
-    control->pitch = nominal_control.pitch;
-    control->yaw = nominal_control.yaw;
     return;
   }
 
@@ -195,9 +189,6 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   control->roll = nominal_control.roll;
   control->pitch = nominal_control.pitch;
   control->yaw = nominal_control.yaw;
-
-  nominal_thrust = nominal_control.thrust;
-  learned_thrust = f_star;
 }
 
 
@@ -210,8 +201,8 @@ PARAM_GROUP_STOP(hamin)
 
 LOG_GROUP_START(hamin)
 
-LOG_ADD(LOG_FLOAT, nominal_thrust, &nominal_thrust)
-LOG_ADD(LOG_FLOAT, learned_thrust, &learned_thrust)
+LOG_ADD(LOG_FLOAT, nominal_thrust, &nominal_control.thrust)
+LOG_ADD(LOG_FLOAT, learned_thrust, &f_star)
 
 LOG_ADD(LOG_FLOAT, vbz_plus, &data.vbz_plus)
 LOG_ADD(LOG_FLOAT, vbz, &data.vbz)
