@@ -4,24 +4,6 @@
 #include "physicalConstants.h"
 #include "controller_lqr.h"
 
-typedef union full_state_s {
-  struct {
-    struct vec position;
-    struct vec velocity;
-    struct vec rpy;
-    struct vec angular_velocity;
-  };
-  float x[12];
-} full_state_t;
-
-typedef union full_input_s {
-  struct {
-    float thrust;  // N
-    struct vec torque; // Nm
-  };
-  float u[4];
-} full_input_t;
-
 const float K[48] = { 4.28062473e-09, -4.28043903e-09,  2.59075826e+00,  3.06871923e-09, -3.06841276e-09,  9.13659945e-01, -1.25374961e-07, -1.25373867e-07, -2.85853471e-14, -8.21319300e-10, -8.21308685e-10, -9.01826749e-16,
                       2.52935768e-04, -5.04522788e-03, -5.23699505e-12,  2.00539212e-04, -4.00009042e-03, -2.51199406e-12,  1.28851079e-02,  6.45977819e-04,  2.23572311e-04,  1.78214320e-03,  8.93454103e-05,  7.40622337e-05,
                       5.07076797e-03, -2.52935767e-04, -5.26213635e-12,  4.02033979e-03, -2.00539212e-04, -2.52405472e-12,  6.45977818e-04,  1.29503354e-02,  5.60333415e-04,  8.93454127e-05,  1.79116483e-03,  1.85620222e-04,
@@ -35,11 +17,11 @@ void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorD
 
   // Disable controller in manual mode if thrust is low
   if (setpoint->mode.z == modeDisable && setpoint->thrust < 1000.0f) {
-    control->controlMode = controlModeLegacy;
-    control->thrust = 0.0f;
-    control->roll = 0;
-    control->pitch = 0;
-    control->yaw = 0;
+    control->controlMode = controlModeForceTorque;
+    control->thrustSi = 0.0f;
+    control->torqueX = 0.0f;
+    control->torqueY = 0.0f;
+    control->torqueZ = 0.0f;
     return;
   }
 

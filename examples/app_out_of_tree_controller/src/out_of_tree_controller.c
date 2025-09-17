@@ -68,38 +68,118 @@ float f_star = 0.0f;
 
 uint8_t use_nominal = 0;
 
-typedef union data_s {
-  struct {
-    float vbz_plus;
-    float vbz;
-    float R33;
+typedef struct data_s {
+  union {
+    struct {
+      float vbz_plus;
+      float vbz;
+      float R33;
+    };
+    float translation[3];
   };
-  float z[3];
+  union {
+    struct {
+      float Wx_plus;
+      float Wy_plus;
+      float Wz_plus;
+      float Wx;
+      float Wy;
+      float Wz;
+    };
+    float rotation[6];
+  };
 } data_t;
 
 data_t data;
 
 control_t nominal_control = {0};
 
-void translation_model(const state_t* state, control_t* control, float dt, data_t *data) {
+// struct mat33 A_block_vrpy = {
+//   .m = { { 0.0f, 9.81e-2f, 0.0f },
+//          { -9.81e-2f, 0.0f, 0.0f },
+//          { -4.90452123e-08f, -4.90452123e-08f, 0.0f } }
+// };
+// struct mat33 A_block_WW = {
+//   .m = { { 1.0f, -1.10080266e-09f, 1.11060286e-09f },
+//          { 4.65498046e-10f, 1.0f, -4.86942337e-10f },
+//          { -3.12320334e-10f, 3.09624941e-10f, 1.0f } }
+// };
+// struct mat33 B_block_WM = {
+//   .m = { { 605.448577f, -28.785763f, -13.0908447f },
+//          { -28.785763f, 605.786198f, -36.5617889f },
+//          { -13.0908447f, -36.5617889f, 344.314849f } }
+// };
+
+// void linear_dynamics_model(data_t *data, const control_t* control, const setpoint_t* setpoint, const sensorData_t* sensors, const state_t* state, const float dt) {
+//   // State
+//   struct vec v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z); // velocity in the world frame (m/s)
+//   struct quat q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w); // attitude quaternion
+//   struct vec rpy = quat2rpy(q); // euler angles (rad)
+//   struct mat33 R = quat2rotmat(q); // rotation matrix
+//   struct vec W = mvmul(R, mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z))); // angular velocity in the world frame (rad/s)
+
+//   // Control input
+//   float f = control->thrustSi;
+//   struct vec M = mkvec(control->torqueX, control->torqueY, control->torqueZ);
+
+//   // System dynamics  
+//   struct vec v_plus = vadd3(
+//     v,
+//     mvmul(A_block_vrpy, rpy),
+//     mkvec(0.0f, 0.0f, 0.37037037f * (f - CF_MASS * GRAVITY_MAGNITUDE))
+//   );
+
+//   struct vec W_plus = vadd(
+//     mvmul(A_block_WW, W),
+//     mvmul(B_block_WM, M)
+//   );
+
+//   // Set data
+//   data->vbz_plus = mvmul(mtranspose(R), v_plus).z;
+//   data->vbz = mvmul(mtranspose(R), v).z;
+//   data->R33 = R.m[2][2];
+
+//   data->Wx = W.x;
+//   data->Wy = W.y;
+//   data->Wz = W.z;
+//   data->Wx_plus = W_plus.x;
+//   data->Wy_plus = W_plus.y;
+//   data->Wz_plus = W_plus.z;
+// }
+
+void nonlinear_dynamics_model(data_t *data, const control_t* control, const sensorData_t* sensors, const state_t* state, const float dt) {
+  // Diagonal of the inertia matrix
+  struct vec J = mkvec(16.571710e-6f, 16.655602e-6f, 29.261652e-6f);
+
   // Current state
   struct vec v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z); // m/s
   struct mat33 R = quat2rotmat(mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w));
+  struct vec W = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z)); // angular velocity in the body frame (rad/s)
   float vbz = mvmul(mtranspose(R), v).z; // m/s
   
   // Control input
   float f = control->thrustSi;
+  struct vec M = mkvec(control->torqueX, control->torqueY, control->torqueZ);
 
   // System dynamics
   float vbz_dot = f / CF_MASS - R.m[2][2] * GRAVITY_MAGNITUDE;
+  struct vec W_dot = veltdiv(vsub(M, vcross(W, veltmul(J, W))), J);
 
   // Estimate the next state
   float vbz_next = vbz + vbz_dot * dt; // m/s
+  struct vec W_next = vadd(W, vscl(dt, W_dot)); // rad/s
 
   // Set data
   data->vbz_plus = vbz_next;
   data->vbz = vbz;
   data->R33 = R.m[2][2];
+
+  data->Wx = W.x;
+  data->Wy = W.y;
+  data->Wz = W.z;
+  data->Wx_plus = W_next.x;
+  data->Wy_plus = W_next.y;
+  data->Wz_plus = W_next.z;
 }
 
 void appMain() {
@@ -120,8 +200,8 @@ bool controllerOutOfTreeTest() {
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
   // Calculate the nominal control (u_bar) using the PID controller
-  // controllerPid(&nominal_control, setpoint, sensors, state, tick);
-  controllerLQR(&nominal_control, setpoint, sensors, state, tick);
+  controllerPid(&nominal_control, setpoint, sensors, state, tick);
+  // controllerLQR(&nominal_control, setpoint, sensors, state, tick);
 
   if (use_nominal) {
     *control = nominal_control;
@@ -155,7 +235,8 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   }
 
   // Estimate the next state after a given time if the nominal control is applied
-  translation_model(state, &nominal_control, 0.05f, &data);
+  nonlinear_dynamics_model(&data, &nominal_control, sensors, state, 0.05f);
+  // linear_dynamics_model(&data, &nominal_control, setpoint, sensors, state, 0.01f);
 
   // c_hat function
   f_star = 0.0f;
@@ -163,7 +244,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     // Kernel
     float sqdist = 0.0f;
     for (int data_idx = 0; data_idx < D; data_idx++) {
-      float diff = data.z[data_idx] - get_X_train(sample_idx, data_idx);
+      float diff = data.translation[data_idx] - get_X_train(sample_idx, data_idx);
       sqdist += diff * diff / lengthscale_sq[data_idx];
     }
     float rbf_kernel = expf(-0.5f * sqdist);
