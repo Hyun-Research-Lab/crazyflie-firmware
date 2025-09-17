@@ -9,7 +9,7 @@ typedef union full_state_s {
     struct vec position;
     struct vec velocity;
     struct vec rpy;
-    struct vec angular_velocity;
+    struct vec W;
   };
   float x[12];
 } full_state_t;
@@ -22,6 +22,7 @@ typedef union full_input_s {
   float u[4];
 } full_input_t;
 
+void controllerLQRInit();
 void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const stabilizerStep_t stabilizerStep);
 
 #endif /* __CONTROLLER_LQR__ */

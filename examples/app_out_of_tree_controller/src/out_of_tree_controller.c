@@ -52,6 +52,26 @@
 #include "param.h"
 #include "log.h"
 
+typedef enum {
+  NominalControllerTypeNone,
+  NominalControllerTypePID,
+  NominalControllerTypeLQR,
+  NominalControllerTypeCount
+} NominalControllerType;
+
+typedef struct {
+  void (*init)(void);
+  void (*update)(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick);
+} NominalControllerFunctions;
+
+static NominalControllerFunctions nominalControllerFunctions[] = {
+  {.init = 0, .update = 0},
+  {.init = controllerPidInit, .update = controllerPid},
+  {.init = controllerLQRInit, .update = controllerLQR},
+};
+
+static NominalControllerType nominal_controller = NominalControllerTypePID;
+
 // Model parameters from gp_model_params.c
 extern const gp_model_params_t f_params;
 
@@ -197,7 +217,9 @@ void appMain() {
 }
 
 void controllerOutOfTreeInit() {
-  controllerPidInit();
+  for (int i = 1; i < NominalControllerTypeCount; i++) {
+    nominalControllerFunctions[i].init();
+  }
 }
 
 bool controllerOutOfTreeTest() {
@@ -205,9 +227,8 @@ bool controllerOutOfTreeTest() {
 }
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
-  // Calculate the nominal control (u_bar) using the PID controller
-  controllerPid(&nominal_control, setpoint, sensors, state, tick);
-  // controllerLQR(&nominal_control, setpoint, sensors, state, tick);
+  // Calculate the nominal control (u_bar)
+  nominalControllerFunctions[nominal_controller].update(&nominal_control, setpoint, sensors, state, tick);
 
   if (use_nominal) {
     *control = nominal_control;
@@ -242,6 +263,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 
   // Estimate the next state after a given time if the nominal control is applied
   nonlinear_dynamics_model(&data, &nominal_control, sensors, state, SAMPLING_PERIOD);
+  // TODO: Make the linear model a function of sampling period
   // linear_dynamics_model(&data, &nominal_control, setpoint, sensors, state, 0.01f);
 
   // c_hat function
@@ -255,14 +277,15 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 }
 
 
-PARAM_GROUP_START(hamin)
+PARAM_GROUP_START(ILBC)
 
+PARAM_ADD(PARAM_UINT8, nominal_controller, &nominal_controller)
 PARAM_ADD(PARAM_UINT8, use_nominal, &use_nominal)
 
-PARAM_GROUP_STOP(hamin)
+PARAM_GROUP_STOP(ILBC)
 
 
-LOG_GROUP_START(hamin)
+LOG_GROUP_START(ILBC)
 
 LOG_ADD(LOG_FLOAT, nominal_thrust, &nominal_control.thrust)
 LOG_ADD(LOG_FLOAT, learned_thrust, &f_star)
@@ -271,4 +294,4 @@ LOG_ADD(LOG_FLOAT, vbz_plus, &data.vbz_plus)
 LOG_ADD(LOG_FLOAT, vbz, &data.vbz)
 LOG_ADD(LOG_FLOAT, R33, &data.R33)
 
-LOG_GROUP_STOP(hamin)
+LOG_GROUP_STOP(ILBC)
