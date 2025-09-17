@@ -47,22 +47,13 @@
 #include "physicalConstants.h"
 #include "platform_defaults.h"
 #include "power_distribution.h"
+#include "gp_model_params.h"
 
 #include "param.h"
 #include "log.h"
 
 // Model parameters from gp_model_params.c
-extern const unsigned int N;
-extern const unsigned int D;
-
-extern const float X_train[];
-extern const float y_mean;
-extern const float y_std;
-extern const float alpha_times_outputscale[];
-extern const float lengthscale_sq[];
-extern const float noise;
-
-static float get_X_train(unsigned int sample_idx, unsigned int data_idx) { return X_train[sample_idx*D + data_idx]; }
+extern const gp_model_params_t f_params;
 
 float f_star = 0.0f;
 
@@ -91,7 +82,6 @@ typedef struct data_s {
 } data_t;
 
 data_t data;
-
 control_t nominal_control = {0};
 
 // struct mat33 A_block_vrpy = {
@@ -146,6 +136,22 @@ control_t nominal_control = {0};
 //   data->Wy_plus = W_plus.y;
 //   data->Wz_plus = W_plus.z;
 // }
+
+float c_hat(const data_t* data, const gp_model_params_t* params) {
+  float y_star = 0.0f;
+  for (int sample_idx = 0; sample_idx < params->NUM_SAMPLES; sample_idx++) {
+    // Kernel
+    float sqdist = 0.0f;
+    for (int data_idx = 0; data_idx < params->NUM_DIMS; data_idx++) {
+      float diff = data->translation[data_idx] - params->X_train[sample_idx*params->NUM_DIMS + data_idx];
+      sqdist += diff * diff / params->lengthscale_sq[data_idx];
+    }
+    float rbf_kernel = expf(-0.5f * sqdist);
+
+    y_star += rbf_kernel * params->alpha_times_outputscale[sample_idx];
+  }
+  return y_star * params->y_std + params->y_mean;
+}
 
 void nonlinear_dynamics_model(data_t *data, const control_t* control, const sensorData_t* sensors, const state_t* state, const float dt) {
   // Diagonal of the inertia matrix
@@ -235,23 +241,11 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   }
 
   // Estimate the next state after a given time if the nominal control is applied
-  nonlinear_dynamics_model(&data, &nominal_control, sensors, state, 0.05f);
+  nonlinear_dynamics_model(&data, &nominal_control, sensors, state, SAMPLING_PERIOD);
   // linear_dynamics_model(&data, &nominal_control, setpoint, sensors, state, 0.01f);
 
   // c_hat function
-  f_star = 0.0f;
-  for (int sample_idx = 0; sample_idx < N; sample_idx++) {
-    // Kernel
-    float sqdist = 0.0f;
-    for (int data_idx = 0; data_idx < D; data_idx++) {
-      float diff = data.translation[data_idx] - get_X_train(sample_idx, data_idx);
-      sqdist += diff * diff / lengthscale_sq[data_idx];
-    }
-    float rbf_kernel = expf(-0.5f * sqdist);
-
-    f_star += rbf_kernel * alpha_times_outputscale[sample_idx];
-  }
-  f_star = f_star * y_std + y_mean;
+  f_star = c_hat(&data, &f_params);
 
   control->controlMode = controlModeForceTorque;
   control->thrustSi = f_star / UINT16_MAX * powerDistributionGetMaxThrust();
