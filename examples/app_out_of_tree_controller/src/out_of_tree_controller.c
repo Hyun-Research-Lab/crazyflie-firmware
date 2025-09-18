@@ -193,18 +193,13 @@ bool controllerOutOfTreeTest() {
   return true;
 }
 
-void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
-  // Calculate the nominal control (u_bar)
-  nominalControllerFunctions[nominal_controller].update(&nominal_control, setpoint, sensors, state, tick);
-
-  if (use_nominal) {
-    *control = nominal_control;
-    return;
-  }
-
+void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const stabilizerStep_t tick) {
   if (!RATE_DO_EXECUTE(RATE_100_HZ, tick)) {
     return;
   }
+  
+  // Calculate the nominal control (u_bar)
+  nominalControllerFunctions[nominal_controller].update(&nominal_control, setpoint, sensors, state, tick);
 
   // Disable controller in manual mode if thrust is low
   if (setpoint->mode.z == modeDisable && setpoint->thrust < 1000.0f) {
@@ -226,6 +221,11 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     nominal_control.torqueX  =  temp_control.roll   / 2.0f * arm    / UINT16_MAX * powerDistributionGetMaxThrust();
     nominal_control.torqueY  = -temp_control.pitch  / 2.0f * arm    / UINT16_MAX * powerDistributionGetMaxThrust();
     nominal_control.torqueZ  = -temp_control.yaw    * THRUST2TORQUE / UINT16_MAX * powerDistributionGetMaxThrust();
+  }
+
+  if (use_nominal) {
+    *control = nominal_control;
+    return;
   }
 
   // Estimate the next state after a given time if the nominal control is applied
@@ -254,7 +254,7 @@ PARAM_GROUP_STOP(ILBC)
 
 LOG_GROUP_START(ILBC)
 
-LOG_ADD(LOG_FLOAT, nominal_thrust, &nominal_control.thrust)
+LOG_ADD(LOG_FLOAT, nominal_thrust, &nominal_control.thrustSi)
 LOG_ADD(LOG_FLOAT, learned_thrust, &f_star)
 
 LOG_ADD(LOG_FLOAT, vbz_plus, &data.vbz_plus)

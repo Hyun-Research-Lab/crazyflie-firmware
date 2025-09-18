@@ -12,7 +12,7 @@ typedef enum {
 
 typedef struct {
   void (*init)(void);
-  void (*update)(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick);
+  void (*update)(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const stabilizerStep_t tick);
 } NominalControllerFunctions;
 
 typedef struct data_s {
