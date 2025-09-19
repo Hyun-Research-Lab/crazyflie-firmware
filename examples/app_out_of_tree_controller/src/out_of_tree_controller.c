@@ -53,6 +53,8 @@
 #include "param.h"
 #include "log.h"
 
+#define ILBC_RATE RATE_500_HZ
+
 static NominalControllerType nominal_controller = NominalControllerTypePID;
 
 static NominalControllerFunctions nominalControllerFunctions[] = {
@@ -194,7 +196,7 @@ bool controllerOutOfTreeTest() {
 }
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const stabilizerStep_t tick) {
-  if (!RATE_DO_EXECUTE(RATE_100_HZ, tick)) {
+  if (!RATE_DO_EXECUTE(ILBC_RATE, tick)) {
     return;
   }
   
@@ -255,6 +257,10 @@ PARAM_GROUP_STOP(ILBC)
 LOG_GROUP_START(ILBC)
 
 LOG_ADD(LOG_FLOAT, nominal_thrust, &nominal_control.thrustSi)
+LOG_ADD(LOG_FLOAT, nominal_torqueX, &nominal_control.torqueX)
+LOG_ADD(LOG_FLOAT, nominal_torqueY, &nominal_control.torqueY)
+LOG_ADD(LOG_FLOAT, nominal_torqueZ, &nominal_control.torqueZ)
+
 LOG_ADD(LOG_FLOAT, learned_thrust, &f_star)
 
 LOG_ADD(LOG_FLOAT, vbz_plus, &data.vbz_plus)
