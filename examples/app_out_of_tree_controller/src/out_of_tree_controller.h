@@ -3,6 +3,8 @@
 
 #include "stabilizer_types.h"
 
+#define ILBC_RATE RATE_500_HZ
+
 typedef enum {
   NominalControllerTypeNone,
   NominalControllerTypePID,
@@ -26,12 +28,8 @@ typedef struct data_s {
   };
   union {
     struct {
-      float Wx_plus;
-      float Wy_plus;
-      float Wz_plus;
-      float Wx;
-      float Wy;
-      float Wz;
+      struct vec W_plus;
+      struct vec W;
     };
     float rotation[6];
   };

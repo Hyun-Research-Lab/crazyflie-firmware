@@ -53,8 +53,6 @@
 #include "param.h"
 #include "log.h"
 
-#define ILBC_RATE RATE_500_HZ
-
 static NominalControllerType nominal_controller = NominalControllerTypePID;
 
 static NominalControllerFunctions nominalControllerFunctions[] = {
@@ -169,12 +167,8 @@ void nonlinear_dynamics_model(data_t *data, const control_t* control, const sens
   data->vbz = vbz;
   data->R33 = R.m[2][2];
 
-  data->Wx = W.x;
-  data->Wy = W.y;
-  data->Wz = W.z;
-  data->Wx_plus = W_next.x;
-  data->Wy_plus = W_next.y;
-  data->Wz_plus = W_next.z;
+  data->W_plus = W_next;
+  data->W = W;
 }
 
 void appMain() {

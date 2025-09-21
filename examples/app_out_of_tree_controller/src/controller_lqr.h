@@ -9,9 +9,9 @@ typedef union full_state_s {
     struct vec position;
     struct vec velocity;
     struct vec rpy;
-    struct vec W;
+    struct vec angularVelocity;
   };
-  float x[12];
+  float full[12];
 } full_state_t;
 
 typedef union full_input_s {
@@ -19,7 +19,7 @@ typedef union full_input_s {
     float thrust;  // N
     struct vec torque; // Nm
   };
-  float u[4];
+  float full[4];
 } full_input_t;
 
 void controllerLQRInit();

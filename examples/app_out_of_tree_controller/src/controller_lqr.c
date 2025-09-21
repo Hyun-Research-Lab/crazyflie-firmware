@@ -22,7 +22,7 @@ const float K[48] = {
 };
 */
 const float K[48] = {
-  0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+    0.0f,    0.0f, 1.0f,   0.0f,    0.0f, 0.5f,   0.0f,     0.0f,    0.0f,   0.0f,   0.0f,   0.0f,
     0.0f, -0.002f, 0.0f,   0.0f, -0.001f, 0.0f, 0.007f,     0.0f,    0.0f, 0.002f,   0.0f,   0.0f,
   0.002f,    0.0f, 0.0f, 0.001f,    0.0f, 0.0f,   0.0f,   0.007f,    0.0f,   0.0f, 0.002f,   0.0f,
     0.0f,    0.0f, 0.0f,   0.0f,    0.0f, 0.0f,   0.0f,     0.0f,  0.007f,   0.0f,   0.0f, 0.002f,
@@ -47,14 +47,14 @@ void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorD
   x.position = mkvec(state->position.x, state->position.y, state->position.z); // position in the world frame (m)
   x.velocity = mkvec(state->velocity.x, state->velocity.y, state->velocity.z); // velocity in the world frame (m/s)
   x.rpy = mkvec(radians(state->attitude.roll), -radians(state->attitude.pitch), radians(state->attitude.yaw)); // euler angles (rad)
-  x.W = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z)); // angular velocity in the body frame (rad/s)
+  x.angularVelocity = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z)); // angular velocity in the body frame (rad/s)
 
   // Equilibrium state and input
   full_state_t x_eq;
   x_eq.position = mkvec(setpoint->position.x, setpoint->position.y, setpoint->position.z);
   x_eq.velocity = vzero();
   x_eq.rpy = vzero();
-  x_eq.W = vzero();
+  x_eq.angularVelocity = vzero();
 
   full_input_t u_eq;
   u_eq.thrust = CF_MASS * GRAVITY_MAGNITUDE;
@@ -63,9 +63,9 @@ void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorD
   // Controller
   full_input_t u_bar;
   for (int input_idx = 0; input_idx < 4; input_idx++) {
-    u_bar.u[input_idx] = u_eq.u[input_idx];
+    u_bar.full[input_idx] = u_eq.full[input_idx];
     for (int state_idx = 0; state_idx < 12; state_idx++) {
-      u_bar.u[input_idx] -= get_K(input_idx, state_idx) * (x.x[state_idx] - x_eq.x[state_idx]);
+      u_bar.full[input_idx] -= get_K(input_idx, state_idx) * (x.full[state_idx] - x_eq.full[state_idx]);
     }
   }
 
