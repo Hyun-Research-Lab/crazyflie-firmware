@@ -30,6 +30,11 @@ const float K[48] = {
 
 static float get_K(unsigned int input_idx, unsigned int state_idx) { return K[input_idx*12 + state_idx]; }
 
+#ifdef ADD_NOISE_LQR
+extern const float random_numbers[];
+static int rand_idx = 0;
+#endif
+
 void controllerLQRInit() {}
 
 void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const stabilizerStep_t tick) {
@@ -69,6 +74,15 @@ void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorD
       u_bar.full[input_idx] -= get_K(input_idx, state_idx) * (x.full[state_idx] - x_eq.full[state_idx]);
     }
   }
+
+#ifdef ADD_NOISE_LQR
+  for (int i = 0; i < 4; i++) {
+    u_bar.full[i] += u_bar.full[i] * random_numbers[4*rand_idx + i];
+  }
+  if (++rand_idx >= 200) {
+    rand_idx = 0;
+  }
+#endif
 
   control->controlMode = controlModeForceTorque;
   control->thrustSi = u_bar.thrust;
