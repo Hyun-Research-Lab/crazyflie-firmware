@@ -4,6 +4,7 @@
 #include "physicalConstants.h"
 #include "controller_lqr.h"
 #include "out_of_tree_controller.h"
+#include "log.h"
 
 // const float K[48] = {
 //     0.0f,    0.0f, 1.0f,   0.0f,    0.0f, 0.5f,   0.0f,     0.0f,    0.0f,   0.0f,   0.0f,   0.0f,
@@ -34,6 +35,8 @@ static float get_K(unsigned int input_idx, unsigned int state_idx) { return K[in
 extern const float random_numbers[];
 static int rand_idx = 0;
 #endif
+
+static full_input_t u_tilde = {0};
 
 void controllerLQRInit() {}
 
@@ -77,7 +80,8 @@ void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorD
 
 #ifdef ADD_NOISE_LQR
   for (int i = 0; i < 4; i++) {
-    u_bar.full[i] += u_bar.full[i] * random_numbers[4*rand_idx + i];
+    u_tilde.full[i] = u_bar.full[i] * random_numbers[4*rand_idx + i];
+    u_bar.full[i] += u_tilde.full[i];
   }
   if (++rand_idx >= 200) {
     rand_idx = 0;
@@ -90,3 +94,12 @@ void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorD
   control->torqueY = u_bar.torque.y;
   control->torqueZ = u_bar.torque.z;
 }
+
+LOG_GROUP_START(LQR)
+
+LOG_ADD(LOG_FLOAT, thrust_tilde, &u_tilde.thrust)
+LOG_ADD(LOG_FLOAT, torqueX_tilde, &u_tilde.torque.x)
+LOG_ADD(LOG_FLOAT, torqueY_tilde, &u_tilde.torque.y)
+LOG_ADD(LOG_FLOAT, torqueZ_tilde, &u_tilde.torque.z)
+
+LOG_GROUP_STOP(LQR)
