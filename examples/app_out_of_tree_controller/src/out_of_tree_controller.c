@@ -62,9 +62,15 @@ static NominalControllerFunctions nominalControllerFunctions[] = {
 };
 
 // Model parameters from gp_model_params.c
-extern const gp_model_params_t f_params;
+extern const gp_model_params_t thrust_params;
+// extern const gp_model_params_t torqueX_params;
+// extern const gp_model_params_t torqueY_params;
+// extern const gp_model_params_t torqueZ_params;
 
-float f_star = 0.0f;
+static float thrust_tilde = 0.0f;
+static float torqueX_tilde = 0.0f;
+static float torqueY_tilde = 0.0f;
+static float torqueZ_tilde = 0.0f;
 
 uint8_t use_nominal = 0;
 
@@ -124,23 +130,23 @@ control_t nominal_control = {0};
 //   data->Wz_plus = W_plus.z;
 // }
 
-float c_hat(const float* data, const gp_model_params_t params) {
+static float c_hat(const float* data, const gp_model_params_t* params) {
   float y_star = 0.0f;
-  for (int sample_idx = 0; sample_idx < params.NUM_SAMPLES; sample_idx++) {
+  for (int sample_idx = 0; sample_idx < params->NUM_SAMPLES; sample_idx++) {
     // Kernel
     float sqdist = 0.0f;
-    for (int data_idx = 0; data_idx < params.NUM_DIMS; data_idx++) {
-      float diff = data[data_idx] - params.X_train[sample_idx*params.NUM_DIMS + data_idx];
-      sqdist += diff * diff / params.lengthscale_sq[data_idx];
+    for (int data_idx = 0; data_idx < params->NUM_DIMS; data_idx++) {
+      float diff = data[data_idx] - params->X_train[sample_idx*params->NUM_DIMS + data_idx];
+      sqdist += diff * diff / params->lengthscale_sq;
     }
     float rbf_kernel = expf(-0.5f * sqdist);
 
-    y_star += rbf_kernel * params.alpha_times_outputscale[sample_idx];
+    y_star += rbf_kernel * params->alpha_times_outputscale[sample_idx];
   }
-  return y_star * params.y_std + params.y_mean;
+  return y_star;
 }
 
-void nonlinear_dynamics_model(data_t *data, const control_t* control, const sensorData_t* sensors, const state_t* state, const float dt) {
+static void nonlinear_dynamics_model(data_t *data, const control_t* control, const sensorData_t* sensors, const state_t* state, const float dt) {
   // Diagonal of the inertia matrix
   struct vec J = mkvec(16.571710e-6f, 16.655602e-6f, 29.261652e-6f);
 
@@ -225,18 +231,18 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   }
 
   // Estimate the next state after a given time if the nominal control is applied
-  nonlinear_dynamics_model(&data, &nominal_control, sensors, state, SAMPLING_PERIOD);
+  nonlinear_dynamics_model(&data, &nominal_control, sensors, state, 1.0f/ILBC_RATE);
   // TODO: Make the linear model a function of sampling period
   // linear_dynamics_model(&data, &nominal_control, setpoint, sensors, state, 0.01f);
 
   // c_hat function
-  f_star = c_hat(data.translation, f_params);
+  thrust_tilde = c_hat(data.translation, &thrust_params);
 
   control->controlMode = controlModeForceTorque;
-  control->thrustSi = f_star / UINT16_MAX * powerDistributionGetMaxThrust();
-  control->torqueX = nominal_control.torqueX;
-  control->torqueY = nominal_control.torqueY;
-  control->torqueZ = nominal_control.torqueZ;
+  control->thrustSi = nominal_control.thrustSi + thrust_tilde;
+  control->torqueX = nominal_control.torqueX + torqueX_tilde;
+  control->torqueY = nominal_control.torqueY + torqueY_tilde;
+  control->torqueZ = nominal_control.torqueZ + torqueZ_tilde;
 }
 
 
@@ -256,7 +262,10 @@ LOG_ADD(LOG_FLOAT, nominal_torqueX, &nominal_control.torqueX)
 LOG_ADD(LOG_FLOAT, nominal_torqueY, &nominal_control.torqueY)
 LOG_ADD(LOG_FLOAT, nominal_torqueZ, &nominal_control.torqueZ)
 
-LOG_ADD(LOG_FLOAT, learned_thrust, &f_star)
+LOG_ADD(LOG_FLOAT, thrust_tilde, &thrust_tilde)
+LOG_ADD(LOG_FLOAT, torqueX_tilde, &torqueX_tilde)
+LOG_ADD(LOG_FLOAT, torqueY_tilde, &torqueY_tilde)
+LOG_ADD(LOG_FLOAT, torqueZ_tilde, &torqueZ_tilde)
 
 LOG_ADD(LOG_FLOAT, vbz_plus, &data.vbz_plus)
 LOG_ADD(LOG_FLOAT, vbz, &data.vbz)

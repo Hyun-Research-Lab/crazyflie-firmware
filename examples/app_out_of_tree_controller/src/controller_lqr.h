@@ -4,7 +4,7 @@
 #include "math3d.h"
 #include "stabilizer_types.h"
 
-#define ADD_NOISE_LQR
+// #define ADD_NOISE_LQR
 
 typedef union full_state_s {
   struct {
