@@ -250,6 +250,7 @@ PARAM_GROUP_STOP(ILBC)
 
 LOG_GROUP_START(ILBC)
 
+LOG_ADD(LOG_UINT8, nominal_controller, &nominal_controller)
 LOG_ADD(LOG_FLOAT, nominal_thrust, &nominal_control.thrustSi)
 LOG_ADD(LOG_FLOAT, nominal_torqueX, &nominal_control.torqueX)
 LOG_ADD(LOG_FLOAT, nominal_torqueY, &nominal_control.torqueY)

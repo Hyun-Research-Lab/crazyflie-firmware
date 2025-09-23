@@ -3,7 +3,7 @@
 
 #include "stabilizer_types.h"
 
-#define ILBC_RATE RATE_500_HZ
+#define ILBC_RATE RATE_100_HZ
 
 typedef enum {
   NominalControllerTypeNone,
