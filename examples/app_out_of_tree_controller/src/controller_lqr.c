@@ -83,7 +83,7 @@ void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorD
     u_tilde.full[i] = u_bar.full[i] * random_numbers[4*rand_idx + i];
     u_bar.full[i] += u_tilde.full[i];
   }
-  if (++rand_idx >= 200) {
+  if (++rand_idx >= sizeof((float*)random_numbers) / sizeof(random_numbers[0]) / 4) {
     rand_idx = 0;
   }
 #endif
