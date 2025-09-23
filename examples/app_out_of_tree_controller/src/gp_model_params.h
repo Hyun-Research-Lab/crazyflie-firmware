@@ -2,7 +2,7 @@
 #define __GP_MODEL_PARAMS_H__
 
 #define MAX_NUM_SAMPLES 200
-#define MAX_NUM_DIMS 3
+#define MAX_NUM_DIMS 6
 
 typedef struct gp_model_params_s {
   unsigned int NUM_SAMPLES;

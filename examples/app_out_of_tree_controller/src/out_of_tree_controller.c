@@ -63,9 +63,9 @@ static NominalControllerFunctions nominalControllerFunctions[] = {
 
 // Model parameters from gp_model_params.c
 extern const gp_model_params_t thrust_params;
-// extern const gp_model_params_t torqueX_params;
-// extern const gp_model_params_t torqueY_params;
-// extern const gp_model_params_t torqueZ_params;
+extern const gp_model_params_t torqueX_params;
+extern const gp_model_params_t torqueY_params;
+extern const gp_model_params_t torqueZ_params;
 
 static float thrust_tilde = 0.0f;
 static float torqueX_tilde = 0.0f;
@@ -237,6 +237,9 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 
   // c_hat function
   thrust_tilde = c_hat(data.translation, &thrust_params);
+  torqueX_tilde = c_hat(data.rotation, &torqueX_params);
+  torqueY_tilde = c_hat(data.rotation, &torqueY_params);
+  torqueZ_tilde = c_hat(data.rotation, &torqueZ_params);
 
   control->controlMode = controlModeForceTorque;
   control->thrustSi = nominal_control.thrustSi + thrust_tilde;
