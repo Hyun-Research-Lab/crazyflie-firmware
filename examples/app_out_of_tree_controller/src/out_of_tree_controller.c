@@ -61,6 +61,8 @@ static NominalControllerFunctions nominalControllerFunctions[] = {
   {.init = controllerLQRInit, .update = controllerLQR},
 };
 
+static LearningType learning_type = LearningTypeDisable;
+
 // Model parameters from gp_model_params.c
 extern const gp_model_params_t thrust_params;
 extern const gp_model_params_t torqueX_params;
@@ -72,63 +74,86 @@ static float torqueX_tilde = 0.0f;
 static float torqueY_tilde = 0.0f;
 static float torqueZ_tilde = 0.0f;
 
-uint8_t use_nominal = 0;
-
 data_t data;
 control_t nominal_control = {0};
 
-// struct mat33 A_block_vrpy = {
-//   .m = { { 0.0f, 9.81e-2f, 0.0f },
-//          { -9.81e-2f, 0.0f, 0.0f },
-//          { -4.90452123e-08f, -4.90452123e-08f, 0.0f } }
-// };
-// struct mat33 A_block_WW = {
-//   .m = { { 1.0f, -1.10080266e-09f, 1.11060286e-09f },
-//          { 4.65498046e-10f, 1.0f, -4.86942337e-10f },
-//          { -3.12320334e-10f, 3.09624941e-10f, 1.0f } }
-// };
-// struct mat33 B_block_WM = {
-//   .m = { { 605.448577f, -28.785763f, -13.0908447f },
-//          { -28.785763f, 605.786198f, -36.5617889f },
-//          { -13.0908447f, -36.5617889f, 344.314849f } }
-// };
+const float A[144] = {
+  0.9999999999999858f, 0.0f, 0.0f, 0.009999999999999858f, 0.0f, 0.0f, 0.0f, 0.000490499999999993f, 0.0f, 0.0f, 1.6349999999999767e-06f, 0.0f, 
+  0.0f, 0.9999999999999858f, 0.0f, 0.0f, 0.009999999999999858f, 0.0f, -0.000490499999999993f, 0.0f, 0.0f, -1.6349999999999767e-06f, 0.0f, 0.0f, 
+  0.0f, 0.0f, 0.9999999999999858f, 0.0f, 0.0f, 0.009999999999999858f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 
+  0.0f, 0.0f, 0.0f, 0.9999999999999858f, 0.0f, 0.0f, 0.0f, 0.0980999999999986f, 0.0f, 0.0f, 0.000490499999999993f, 0.0f, 
+  0.0f, 0.0f, 0.0f, 0.0f, 0.9999999999999858f, 0.0f, -0.0980999999999986f, 0.0f, 0.0f, -0.000490499999999993f, 0.0f, 0.0f, 
+  0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.9999999999999858f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 
+  0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.9999999999999858f, 0.0f, 0.0f, 0.009999999999999858f, 0.0f, 0.0f, 
+  0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.9999999999999858f, 0.0f, 0.0f, 0.009999999999999858f, 0.0f, 
+  0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.9999999999999858f, 0.0f, 0.0f, 0.009999999999999858f, 
+  0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.9999999999999858f, 0.0f, 0.0f, 
+  0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.9999999999999858f, 0.0f, 
+  0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.9999999999999858f, 
+};
+const float B[48] = {
+  0.0f, -1.1766180606402188e-05f, 0.0002476151083430713f, -1.4944631228833127e-05f, 
+  0.0f, -0.00024747710583175375f, 1.1766180606402183e-05f, 5.350882790773782e-06f, 
+  0.001362397820163468f, 0.0f, 0.0f, 0.0f, 
+  0.0f, -0.004706472242560876f, 0.09904604333722854f, -0.00597785249153325f, 
+  0.0f, -0.0989908423327015f, 0.004706472242560873f, 0.0021403531163095126f, 
+  0.27247956403269363f, 0.0f, 0.0f, 0.0f, 
+  0.0f, 3.027242884792095f, -0.14392881475721325f, -0.06545422374035206f, 
+  0.0f, -0.1439288147572133f, 3.0289309889060716f, -0.18280894469520648f, 
+  0.0f, -0.06545422374035206f, -0.18280894469520648f, 1.7215742425368978f, 
+  0.0f, 605.448576958419f, -28.785762951442653f, -13.090844748070415f, 
+  0.0f, -28.785762951442663f, 605.7861977812144f, -36.56178893904129f, 
+  0.0f, -13.090844748070415f, -36.56178893904129f, 344.31484850737957f, 
+};
+static float get_A(unsigned int row, unsigned int col) { return A[row*12 + col]; }
+static float get_B(unsigned int row, unsigned int col) { return B[row*4 + col]; }
 
-// void linear_dynamics_model(data_t *data, const control_t* control, const setpoint_t* setpoint, const sensorData_t* sensors, const state_t* state, const float dt) {
-//   // State
-//   struct vec v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z); // velocity in the world frame (m/s)
-//   struct quat q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w); // attitude quaternion
-//   struct vec rpy = quat2rpy(q); // euler angles (rad)
-//   struct mat33 R = quat2rotmat(q); // rotation matrix
-//   struct vec W = mvmul(R, mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z))); // angular velocity in the world frame (rad/s)
+void linear_dynamics_model(data_t *data, const control_t* control, const setpoint_t* setpoint, const sensorData_t* sensors, const state_t* state) {
+  // States
+  full_state_t x;
+  x.position = mkvec(state->position.x, state->position.y, state->position.z); // position in the world frame (m)
+  x.velocity = mkvec(state->velocity.x, state->velocity.y, state->velocity.z); // velocity in the world frame (m/s)
+  x.rpy = mkvec(radians(state->attitude.roll), -radians(state->attitude.pitch), radians(state->attitude.yaw)); // euler angles (rad)
+  x.angularVelocity = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z)); // angular velocity in the body frame (rad/s)
 
-//   // Control input
-//   float f = control->thrustSi;
-//   struct vec M = mkvec(control->torqueX, control->torqueY, control->torqueZ);
+  struct mat33 R = quat2rotmat(mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w));
 
-//   // System dynamics  
-//   struct vec v_plus = vadd3(
-//     v,
-//     mvmul(A_block_vrpy, rpy),
-//     mkvec(0.0f, 0.0f, 0.37037037f * (f - CF_MASS * GRAVITY_MAGNITUDE))
-//   );
+  // Equilibrium state and input
+  full_state_t x_eq;
+  x_eq.position = mkvec(setpoint->position.x, setpoint->position.y, setpoint->position.z);
+  x_eq.velocity = vzero();
+  x_eq.rpy = vzero();
+  x_eq.angularVelocity = vzero();
 
-//   struct vec W_plus = vadd(
-//     mvmul(A_block_WW, W),
-//     mvmul(B_block_WM, M)
-//   );
+  full_input_t u_eq;
+  u_eq.thrust = CF_MASS * GRAVITY_MAGNITUDE;
+  u_eq.torque = vzero();
 
-//   // Set data
-//   data->vbz_plus = mvmul(mtranspose(R), v_plus).z;
-//   data->vbz = mvmul(mtranspose(R), v).z;
-//   data->R33 = R.m[2][2];
+  // Control input
+  full_input_t u_bar;
+  u_bar.thrust = control->thrust;
+  u_bar.torque = mkvec(control->torqueX, control->torqueY, control->torqueZ);
 
-//   data->Wx = W.x;
-//   data->Wy = W.y;
-//   data->Wz = W.z;
-//   data->Wx_plus = W_plus.x;
-//   data->Wy_plus = W_plus.y;
-//   data->Wz_plus = W_plus.z;
-// }
+  // System dynamics
+  full_state_t x_plus;
+  for (int state_idx = 0; state_idx < 12; state_idx++) {
+    x_plus.full[state_idx] = x_eq.full[state_idx];
+    for (int state_col = 0; state_col < 12; state_col++) {
+      x_plus.full[state_idx] += get_A(state_idx, state_col) * (x.full[state_col] - x_eq.full[state_col]);
+    }
+    for (int input_idx = 0; input_idx < 4; input_idx++) {
+      x_plus.full[state_idx] += get_B(state_idx, input_idx) * (u_bar.full[input_idx] - u_eq.full[input_idx]);
+    }
+  }
+
+  // Set data
+  data->vbz_plus = mvmul(mtranspose(R), x_plus.velocity).z;
+  data->vbz = mvmul(mtranspose(R), x.velocity).z;
+  data->R33 = R.m[2][2];
+
+  data->W_plus = x_plus.angularVelocity;
+  data->W = x.angularVelocity;
+}
 
 static float c_hat(const float* data, const gp_model_params_t* params) {
   float y_star = 0.0f;
@@ -225,15 +250,15 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     nominal_control.torqueZ  = -temp_control.yaw    * THRUST2TORQUE / UINT16_MAX * powerDistributionGetMaxThrust();
   }
 
-  if (use_nominal) {
+  if (learning_type == LearningTypeDisable) {
     *control = nominal_control;
     return;
-  }
-
   // Estimate the next state after a given time if the nominal control is applied
-  nonlinear_dynamics_model(&data, &nominal_control, sensors, state, 1.0f/ILBC_RATE);
-  // TODO: Make the linear model a function of sampling period
-  // linear_dynamics_model(&data, &nominal_control, setpoint, sensors, state, 0.01f);
+  } else if (learning_type == LearningTypeLinearModel) {
+    linear_dynamics_model(&data, &nominal_control, setpoint, sensors, state);
+  } else if (learning_type == LearningTypeNonlinearModel) {
+    nonlinear_dynamics_model(&data, &nominal_control, sensors, state, 1.0f/ILBC_RATE);
+  }  
 
   // c_hat function
   thrust_tilde = c_hat(data.translation, &thrust_params);
@@ -252,7 +277,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 PARAM_GROUP_START(ILBC)
 
 PARAM_ADD(PARAM_UINT8, nominal_controller, &nominal_controller)
-PARAM_ADD(PARAM_UINT8, use_nominal, &use_nominal)
+PARAM_ADD(PARAM_UINT8, learning_type, &learning_type)
 
 PARAM_GROUP_STOP(ILBC)
 
