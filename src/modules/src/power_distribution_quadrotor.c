@@ -46,7 +46,67 @@
 #  define DEFAULT_IDLE_THRUST CONFIG_MOTORS_DEFAULT_IDLE_THRUST
 #endif
 
+#define MEETS_THRUST_CONSTRAINTS(x) (x >= 0 && x <= THRUST_MAX)
+
 static uint32_t idleThrust = DEFAULT_IDLE_THRUST;
+
+const float arm = 0.707106781f * ARM_LENGTH;
+// static float T_inv[16] = {
+//   0.25f, -1.0f/(4.0f*arm), -1.0f/(4.0f*arm), -1.0f/(4.0f*THRUST2TORQUE),
+//   0.25f, -1.0f/(4.0f*arm),  1.0f/(4.0f*arm),  1.0f/(4.0f*THRUST2TORQUE),
+//   0.25f,  1.0f/(4.0f*arm),  1.0f/(4.0f*arm), -1.0f/(4.0f*THRUST2TORQUE),
+//   0.25f,  1.0f/(4.0f*arm), -1.0f/(4.0f*arm),  1.0f/(4.0f*THRUST2TORQUE),
+// };
+static float Q[16] = {
+  THRUST2TORQUE*THRUST2TORQUE + 2*arm*arm + 1,             1 - THRUST2TORQUE*THRUST2TORQUE, THRUST2TORQUE*THRUST2TORQUE - 2*arm*arm + 1,             1 - THRUST2TORQUE*THRUST2TORQUE,
+  1 - THRUST2TORQUE*THRUST2TORQUE,             THRUST2TORQUE*THRUST2TORQUE + 2*arm*arm + 1,             1 - THRUST2TORQUE*THRUST2TORQUE, THRUST2TORQUE*THRUST2TORQUE - 2*arm*arm + 1,
+  THRUST2TORQUE*THRUST2TORQUE - 2*arm*arm + 1,             1 - THRUST2TORQUE*THRUST2TORQUE, THRUST2TORQUE*THRUST2TORQUE + 2*arm*arm + 1,             1 - THRUST2TORQUE*THRUST2TORQUE,
+  1 - THRUST2TORQUE*THRUST2TORQUE,             THRUST2TORQUE*THRUST2TORQUE - 2*arm*arm + 1,             1 - THRUST2TORQUE*THRUST2TORQUE, THRUST2TORQUE*THRUST2TORQUE + 2*arm*arm + 1,
+};
+
+static void solveLinearSystemPlusVector(float A[16], float b[4], float v[4], float out[4]) {
+  float x[4];
+  
+  float augmented[4*5]; // Augmented matrix as a flat array
+  int i, j, k;
+
+  // Fill the augmented matrix
+  for (i = 0; i < 4; i++) {
+    for (j = 0; j < 4; j++) {
+      augmented[i*5 + j] = A[i*4 + j]; // Copy A
+    }
+    augmented[i*5 + 4] = b[i]; // Add b as the last column
+  }
+
+  // Gaussian elimination
+  for (i = 0; i < 4; i++) {
+    // Pivot normalization
+    float pivot = augmented[i*5 + i];
+    for (j = i; j <= 4; j++) { // Include the augmented column
+      augmented[i*5 + j] /= pivot;
+    }
+
+    // Eliminate below
+    for (k = i + 1; k < 4; k++) {
+      float ratio = augmented[k*5 + i];
+      for (j = i; j <= 4; j++) {
+        augmented[k*5 + j] -= ratio * augmented[i*5 + j];
+      }
+    }
+  }
+
+  // Back-substitution
+  for (i = 4 - 1; i >= 0; i--) {
+    x[i] = augmented[i*5 + 4]; // Start with the augmented column value
+    for (j = i + 1; j < 4; j++) {
+      x[i] -= augmented[i*5 + j] * x[j];
+    }
+  }
+
+  for (i = 0; i < 4; i++) {
+    out[i] = x[i] + v[i];
+  }
+}
 
 int powerDistributionMotorType(uint32_t id)
 {
@@ -93,6 +153,7 @@ static void powerDistributionLegacy(const control_t *control, motors_thrust_unca
 }
 
 static void powerDistributionForceTorque(const control_t *control, motors_thrust_uncapped_t* motorThrustUncapped) {
+  float F_star[STABILIZER_NR_OF_MOTORS];
   static float motorForces[STABILIZER_NR_OF_MOTORS];
 
   const float arm = 0.707106781f * ARM_LENGTH;
@@ -101,10 +162,48 @@ static void powerDistributionForceTorque(const control_t *control, motors_thrust
   const float thrustPart = 0.25f * control->thrustSi; // N (per rotor)
   const float yawPart = 0.25f * control->torqueZ / THRUST2TORQUE;
 
-  motorForces[0] = thrustPart - rollPart - pitchPart - yawPart;
-  motorForces[1] = thrustPart - rollPart + pitchPart + yawPart;
-  motorForces[2] = thrustPart + rollPart + pitchPart - yawPart;
-  motorForces[3] = thrustPart + rollPart - pitchPart + yawPart;
+  F_star[0] = thrustPart - rollPart - pitchPart - yawPart;
+  F_star[1] = thrustPart - rollPart + pitchPart + yawPart;
+  F_star[2] = thrustPart + rollPart + pitchPart - yawPart;
+  F_star[3] = thrustPart + rollPart - pitchPart + yawPart;
+
+  float A[16];
+  float b[4];
+
+  for (int i = 0; i < 4; i++) {
+    // If the thrust is negative, set b[i] (same as v[i]) to -F_star
+    if (F_star[i] < 0) {
+      b[i] = -F_star[i];
+    }
+    // If the thrust is above max, set b[i] (same as v[i]) to THRUST_MAX - F_star
+    else if (F_star[i] > THRUST_MAX) {
+      b[i] = THRUST_MAX - F_star[i];
+    }
+    // If the thrust is within bounds, set b[i] to 0
+    else {
+      b[i] = 0;
+    }
+  }
+
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 4; j++) {
+      // If both thrusts meet constraints values of A are from Q
+      if (MEETS_THRUST_CONSTRAINTS(F_star[i]) && MEETS_THRUST_CONSTRAINTS(F_star[j])) {
+        A[i*4 + j] = Q[i*4 + j];
+      // If not, fill in A with ones and zeros
+      } else if (i == j) {
+        A[i*4 + j] = 1;
+      } else {
+        A[i*4 + j] = 0;
+      }
+      // If the row thrust meets constraints but the column thrust does not, add to b
+      if (MEETS_THRUST_CONSTRAINTS(F_star[i]) && !MEETS_THRUST_CONSTRAINTS(F_star[j])) {
+        b[i] -= Q[i*4 + j]*b[j];
+      }
+    }
+  }
+  
+  solveLinearSystemPlusVector(A, b, F_star, motorForces);
 
   for (int motorIndex = 0; motorIndex < STABILIZER_NR_OF_MOTORS; motorIndex++) {
     float motorForce = motorForces[motorIndex];
