@@ -61,7 +61,7 @@ static NominalControllerFunctions nominalControllerFunctions[] = {
   {.init = controllerLQRInit, .update = controllerLQR},
 };
 
-static LearningType learning_type = LearningTypeDisable;
+LearningType learning_type = LearningTypeDisable;
 
 // Model parameters from gp_model_params.c
 extern const gp_model_params_t thrust_params;
@@ -73,6 +73,9 @@ static float thrust_tilde = 0.0f;
 static float torqueX_tilde = 0.0f;
 static float torqueY_tilde = 0.0f;
 static float torqueZ_tilde = 0.0f;
+
+extern const float random_numbers[];
+static int rand_idx = 0;
 
 data_t data;
 control_t nominal_control = {0};
@@ -225,9 +228,6 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     return;
   }
   
-  // Calculate the nominal control (u_bar)
-  nominalControllerFunctions[nominal_controller].update(&nominal_control, setpoint, sensors, state, tick);
-
   // Disable controller in manual mode if thrust is low
   if (setpoint->mode.z == modeDisable && setpoint->thrust < 1000.0f) {
     control->controlMode = controlModeForceTorque;
@@ -237,6 +237,9 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     control->torqueZ = 0.0f;
     return;
   }
+
+  // Calculate the nominal control (u_bar)
+  nominalControllerFunctions[nominal_controller].update(&nominal_control, setpoint, sensors, state, tick);
 
   // Convert nominal control to controlModeForceTorque
   if (nominal_control.controlMode == controlModeLegacy) {
@@ -251,20 +254,35 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   }
 
   if (learning_type == LearningTypeDisable) {
-    *control = nominal_control;
-    return;
-  // Estimate the next state after a given time if the nominal control is applied
-  } else if (learning_type == LearningTypeLinearModel) {
-    linear_dynamics_model(&data, &nominal_control, setpoint, sensors, state);
-  } else if (learning_type == LearningTypeNonlinearModel) {
-    nonlinear_dynamics_model(&data, &nominal_control, sensors, state, 1.0f/ILBC_RATE);
-  }  
+    // Return unaltered nominal control
+    thrust_tilde = 0.0f;
+    torqueX_tilde = 0.0f;
+    torqueY_tilde = 0.0f;
+    torqueZ_tilde = 0.0f;
+  } else if (learning_type == LearningTypeTraining) {
+    // Add exploration noise to the nominal control
+    thrust_tilde = nominal_control.thrust * random_numbers[4*rand_idx];
+    torqueX_tilde = nominal_control.torqueX * random_numbers[4*rand_idx + 1];
+    torqueY_tilde = nominal_control.torqueY * random_numbers[4*rand_idx + 2];
+    torqueZ_tilde = nominal_control.torqueZ * random_numbers[4*rand_idx + 3];
 
-  // c_hat function
-  thrust_tilde = c_hat(data.translation, &thrust_params);
-  torqueX_tilde = c_hat(data.rotation, &torqueX_params);
-  torqueY_tilde = c_hat(data.rotation, &torqueY_params);
-  torqueZ_tilde = c_hat(data.rotation, &torqueZ_params);
+    if (++rand_idx >= sizeof((float*)random_numbers) / sizeof(random_numbers[0]) / 4) {
+      rand_idx = 0;
+    }
+  } else {
+    // Estimate the next state after a given time if the nominal control is applied
+    if (learning_type == LearningTypeLinearModel) {
+      linear_dynamics_model(&data, &nominal_control, setpoint, sensors, state);
+    } else if (learning_type == LearningTypeNonlinearModel) {
+      nonlinear_dynamics_model(&data, &nominal_control, sensors, state, 1.0f/ILBC_RATE);
+    }
+
+    // c_hat function
+    thrust_tilde = c_hat(data.translation, &thrust_params);
+    torqueX_tilde = c_hat(data.rotation, &torqueX_params);
+    torqueY_tilde = c_hat(data.rotation, &torqueY_params);
+    torqueZ_tilde = c_hat(data.rotation, &torqueZ_params);
+  }
 
   control->controlMode = controlModeForceTorque;
   control->thrustSi = nominal_control.thrustSi + thrust_tilde;

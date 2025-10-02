@@ -31,13 +31,6 @@ const float K[48] = {
 
 static float get_K(unsigned int input_idx, unsigned int state_idx) { return K[input_idx*12 + state_idx]; }
 
-#ifdef ADD_NOISE_LQR
-extern const float random_numbers[];
-static int rand_idx = 0;
-#endif
-
-static full_input_t u_tilde = {0};
-
 void controllerLQRInit() {}
 
 void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const stabilizerStep_t tick) {
@@ -78,28 +71,9 @@ void controllerLQR(control_t *control, const setpoint_t *setpoint, const sensorD
     }
   }
 
-#ifdef ADD_NOISE_LQR
-  for (int i = 0; i < 4; i++) {
-    u_tilde.full[i] = u_bar.full[i] * random_numbers[4*rand_idx + i];
-    u_bar.full[i] += u_tilde.full[i];
-  }
-  if (++rand_idx >= sizeof((float*)random_numbers) / sizeof(random_numbers[0]) / 4) {
-    rand_idx = 0;
-  }
-#endif
-
   control->controlMode = controlModeForceTorque;
   control->thrustSi = u_bar.thrust;
   control->torqueX = u_bar.torque.x;
   control->torqueY = u_bar.torque.y;
   control->torqueZ = u_bar.torque.z;
 }
-
-LOG_GROUP_START(LQR)
-
-LOG_ADD(LOG_FLOAT, thrust_tilde, &u_tilde.thrust)
-LOG_ADD(LOG_FLOAT, torqueX_tilde, &u_tilde.torque.x)
-LOG_ADD(LOG_FLOAT, torqueY_tilde, &u_tilde.torque.y)
-LOG_ADD(LOG_FLOAT, torqueZ_tilde, &u_tilde.torque.z)
-
-LOG_GROUP_STOP(LQR)
