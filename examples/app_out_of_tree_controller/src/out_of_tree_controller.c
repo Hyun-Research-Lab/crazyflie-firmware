@@ -261,10 +261,10 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     torqueZ_tilde = 0.0f;
   } else if (learning_type == LearningTypeTraining) {
     // Add exploration noise to the nominal control
-    thrust_tilde = nominal_control.thrust * random_numbers[4*rand_idx] * 0.5f;
-    torqueX_tilde = nominal_control.torqueX * random_numbers[4*rand_idx + 1] * 0.5f;
-    torqueY_tilde = nominal_control.torqueY * random_numbers[4*rand_idx + 2] * 0.5f;
-    torqueZ_tilde = nominal_control.torqueZ * random_numbers[4*rand_idx + 3] * 0.5f;
+    thrust_tilde = nominal_control.thrust * random_numbers[4*rand_idx];
+    torqueX_tilde = nominal_control.torqueX * random_numbers[4*rand_idx + 1];
+    torqueY_tilde = nominal_control.torqueY * random_numbers[4*rand_idx + 2];
+    torqueZ_tilde = nominal_control.torqueZ * random_numbers[4*rand_idx + 3];
 
     if (RATE_DO_EXECUTE(10, tick)) {
       if (++rand_idx >= sizeof((float*)random_numbers) / sizeof(random_numbers[0]) / 4) {
