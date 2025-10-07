@@ -1,5 +1,5 @@
-#ifndef __GP_MODEL_PARAMS_H__
-#define __GP_MODEL_PARAMS_H__
+#ifndef GP_MODEL_PARAMS_H
+#define GP_MODEL_PARAMS_H
 
 #define MAX_NUM_SAMPLES 100
 #define MAX_NUM_DIMS 6
@@ -13,4 +13,4 @@ typedef struct gp_model_params_s {
   float noise;
 } gp_model_params_t;
 
-#endif /* __GP_MODEL_PARAMS_H__ */
+#endif /* GP_MODEL_PARAMS_H */

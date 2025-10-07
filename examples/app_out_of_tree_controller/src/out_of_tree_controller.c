@@ -49,6 +49,7 @@
 #include "power_distribution.h"
 #include "gp_model_params.h"
 #include "out_of_tree_controller.h"
+#include "random_numbers.h"
 
 #include "param.h"
 #include "log.h"
@@ -74,7 +75,7 @@ static float torqueX_tilde = 0.0f;
 static float torqueY_tilde = 0.0f;
 static float torqueZ_tilde = 0.0f;
 
-extern const float random_numbers[];
+// extern const float random_numbers[];
 static int rand_idx = 0;
 
 data_t data;
@@ -267,7 +268,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     torqueZ_tilde = nominal_control.torqueZ * random_numbers[4*rand_idx + 3];
 
     if (RATE_DO_EXECUTE(10, tick)) {
-      if (++rand_idx >= sizeof((float*)random_numbers) / sizeof(random_numbers[0]) / 4) {
+      if (++rand_idx >= NUM_RANDOM_NUMBERS / 4) {
         rand_idx = 0;
       }
     }
