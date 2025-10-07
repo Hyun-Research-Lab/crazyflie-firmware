@@ -134,7 +134,7 @@ void linear_dynamics_model(data_t *data, const control_t* control, const setpoin
 
   // Control input
   full_input_t u_bar;
-  u_bar.thrust = control->thrust;
+  u_bar.thrust = control->thrustSi;
   u_bar.torque = mkvec(control->torqueX, control->torqueY, control->torqueZ);
 
   // System dynamics
@@ -261,7 +261,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     torqueZ_tilde = 0.0f;
   } else if (learning_type == LearningTypeTraining) {
     // Add exploration noise to the nominal control
-    thrust_tilde = nominal_control.thrust * random_numbers[4*rand_idx];
+    thrust_tilde = nominal_control.thrustSi * random_numbers[4*rand_idx];
     torqueX_tilde = nominal_control.torqueX * random_numbers[4*rand_idx + 1];
     torqueY_tilde = nominal_control.torqueY * random_numbers[4*rand_idx + 2];
     torqueZ_tilde = nominal_control.torqueZ * random_numbers[4*rand_idx + 3];
