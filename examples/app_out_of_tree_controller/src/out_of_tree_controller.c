@@ -64,10 +64,10 @@ static NominalControllerFunctions nominalControllerFunctions[] = {
 LearningType learning_type = LearningTypeDisable;
 
 // Model parameters from gp_model_params.c
-extern const gp_model_params_t thrust_params;
-extern const gp_model_params_t torqueX_params;
-extern const gp_model_params_t torqueY_params;
-extern const gp_model_params_t torqueZ_params;
+extern gp_model_params_t thrust_params;
+extern gp_model_params_t torqueX_params;
+extern gp_model_params_t torqueY_params;
+extern gp_model_params_t torqueZ_params;
 
 static float thrust_tilde = 0.0f;
 static float torqueX_tilde = 0.0f;
