@@ -36,7 +36,7 @@
 #include "task.h"
 
 // Edit the debug name to get nice debug prints
-#define DEBUG_MODULE "MYCONTROLLER"
+#define DEBUG_MODULE "ILBC"
 #include "debug.h"
 
 #include "controller.h"
