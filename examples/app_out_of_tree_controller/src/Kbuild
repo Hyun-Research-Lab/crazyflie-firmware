@@ -1,3 +1,4 @@
 obj-y += out_of_tree_controller.o
 obj-y += gp_model_params.o
 obj-y += controller_lqr.o
+obj-y += random_numbers.o
