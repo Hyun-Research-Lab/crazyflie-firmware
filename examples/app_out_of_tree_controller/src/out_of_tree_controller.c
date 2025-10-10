@@ -162,14 +162,16 @@ void linear_dynamics_model(data_t *data, const control_t* control, const setpoin
 
 static float c_hat(const float* data, const gp_model_params_t* params) {
   float y_star = 0.0f;
+  float neg_gamma = -0.5f / params->lengthscale_sq;
+
   for (int sample_idx = 0; sample_idx < params->NUM_SAMPLES; sample_idx++) {
     // Kernel
     float sqdist = 0.0f;
     for (int data_idx = 0; data_idx < params->NUM_DIMS; data_idx++) {
       float diff = data[data_idx] - params->X_train[sample_idx*params->NUM_DIMS + data_idx];
-      sqdist += diff * diff / params->lengthscale_sq;
+      sqdist += diff * diff;
     }
-    float rbf_kernel = expf(-0.5f * sqdist);
+    float rbf_kernel = expf(neg_gamma * sqdist);
 
     y_star += rbf_kernel * params->alpha_times_outputscale[sample_idx];
   }
