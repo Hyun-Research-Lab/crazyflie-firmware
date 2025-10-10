@@ -83,7 +83,7 @@ static int rand_idx = 0;
 data_t data;
 control_t nominal_control = {0};
 
-const float A[144] = {
+const arm_matrix_instance_f32 A = { 12, 12, (float32_t[]){
   0.9999999999999858f, 0.0f, 0.0f, 0.009999999999999858f, 0.0f, 0.0f, 0.0f, 0.000490499999999993f, 0.0f, 0.0f, 1.6349999999999767e-06f, 0.0f, 
   0.0f, 0.9999999999999858f, 0.0f, 0.0f, 0.009999999999999858f, 0.0f, -0.000490499999999993f, 0.0f, 0.0f, -1.6349999999999767e-06f, 0.0f, 0.0f, 
   0.0f, 0.0f, 0.9999999999999858f, 0.0f, 0.0f, 0.009999999999999858f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 
@@ -96,8 +96,8 @@ const float A[144] = {
   0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.9999999999999858f, 0.0f, 0.0f, 
   0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.9999999999999858f, 0.0f, 
   0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.9999999999999858f, 
-};
-const float B[48] = {
+} };
+const arm_matrix_instance_f32 B = { 12, 4, (float32_t[]){
   0.0f, -1.1766180606402188e-05f, 0.0002476151083430713f, -1.4944631228833127e-05f, 
   0.0f, -0.00024747710583175375f, 1.1766180606402183e-05f, 5.350882790773782e-06f, 
   0.001362397820163468f, 0.0f, 0.0f, 0.0f, 
@@ -110,55 +110,83 @@ const float B[48] = {
   0.0f, 605.448576958419f, -28.785762951442653f, -13.090844748070415f, 
   0.0f, -28.785762951442663f, 605.7861977812144f, -36.56178893904129f, 
   0.0f, -13.090844748070415f, -36.56178893904129f, 344.31484850737957f, 
-};
-static float get_A(unsigned int row, unsigned int col) { return A[row*12 + col]; }
-static float get_B(unsigned int row, unsigned int col) { return B[row*4 + col]; }
+} };
 
 void linear_dynamics_model(data_t *data, const control_t* control, const setpoint_t* setpoint, const sensorData_t* sensors, const state_t* state) {
   // States
-  full_state_t x;
-  x.position = mkvec(state->position.x, state->position.y, state->position.z); // position in the world frame (m)
-  x.velocity = mkvec(state->velocity.x, state->velocity.y, state->velocity.z); // velocity in the world frame (m/s)
-  x.rpy = mkvec(radians(state->attitude.roll), -radians(state->attitude.pitch), radians(state->attitude.yaw)); // euler angles (rad)
-  x.angularVelocity = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z)); // angular velocity in the body frame (rad/s)
+  arm_matrix_instance_f32 x = { 12, 1, (float32_t[]){
+    state->position.x, state->position.y, state->position.z, // position in the world frame (m)
+    state->velocity.x, state->velocity.y, state->velocity.z, // velocity in the world frame (m/s)
+    radians(state->attitude.roll), -radians(state->attitude.pitch), radians(state->attitude.yaw), // euler angles (rad)
+    radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z), // angular velocity in the body frame (rad/s)
+  } };
 
   struct mat33 R = quat2rotmat(mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w));
 
   // Equilibrium state and input
-  full_state_t x_eq;
-  x_eq.position = mkvec(setpoint->position.x, setpoint->position.y, setpoint->position.z);
-  x_eq.velocity = vzero();
-  x_eq.rpy = vzero();
-  x_eq.angularVelocity = vzero();
-
-  full_input_t u_eq;
-  u_eq.thrust = CF_MASS * GRAVITY_MAGNITUDE;
-  u_eq.torque = vzero();
+  arm_matrix_instance_f32 x_eq = { 12, 1, (float32_t[]){
+    setpoint->position.x, setpoint->position.y, setpoint->position.z,
+    0.0f, 0.0f, 0.0f,
+    0.0f, 0.0f, 0.0f,
+    0.0f, 0.0f, 0.0f,
+  } };
+  arm_matrix_instance_f32 u_eq = { 4, 1, (float32_t[]){
+    CF_MASS * GRAVITY_MAGNITUDE,
+    0.0f,
+    0.0f,
+    0.0f
+  } };
 
   // Control input
-  full_input_t u_bar;
-  u_bar.thrust = control->thrustSi;
-  u_bar.torque = mkvec(control->torqueX, control->torqueY, control->torqueZ);
+  arm_matrix_instance_f32 u_bar = { 4, 1, (float32_t[]){
+    control->thrustSi,
+    control->torqueX,
+    control->torqueY,
+    control->torqueZ
+  } };
 
   // System dynamics
-  full_state_t x_plus;
-  for (int state_idx = 0; state_idx < 12; state_idx++) {
-    x_plus.full[state_idx] = x_eq.full[state_idx];
-    for (int state_col = 0; state_col < 12; state_col++) {
-      x_plus.full[state_idx] += get_A(state_idx, state_col) * (x.full[state_col] - x_eq.full[state_col]);
-    }
-    for (int input_idx = 0; input_idx < 4; input_idx++) {
-      x_plus.full[state_idx] += get_B(state_idx, input_idx) * (u_bar.full[input_idx] - u_eq.full[input_idx]);
-    }
-  }
+  float x_sub_data[12];
+  arm_matrix_instance_f32 x_sub = { 12, 1, x_sub_data };
+
+  float u_sub_data[4];
+  arm_matrix_instance_f32 u_sub = { 4, 1, u_sub_data };
+
+  float Ax_data[12];
+  arm_matrix_instance_f32 Ax = { 12, 1, Ax_data };
+
+  float Bu_data[12];
+  arm_matrix_instance_f32 Bu = { 4, 1, Bu_data };
+
+  float AxBu_data[12];
+  arm_matrix_instance_f32 AxBu = { 12, 1, AxBu_data };
+
+  float x_plus_data[12];
+  arm_matrix_instance_f32 x_plus = { 12, 1, x_plus_data };
+
+  arm_mat_sub_f32(&x, &x_eq, &x_sub);
+  arm_mat_sub_f32(&u_bar, &u_eq, &u_sub);
+
+  arm_mat_mult_f32(&A, &x_sub, &Ax);
+  arm_mat_mult_f32(&B, &u_sub, &Bu);
+
+  arm_mat_add_f32(&Ax, &Bu, &AxBu);
+  arm_mat_add_f32(&x_eq, &AxBu, &x_plus);
 
   // Set data
-  data->vbz_plus = mvmul(mtranspose(R), x_plus.velocity).z;
-  data->vbz = mvmul(mtranspose(R), x.velocity).z;
+  struct vec velocity_plus = mkvec(x_plus.pData[3], x_plus.pData[4], x_plus.pData[5]);
+  struct vec velocity = mkvec(x.pData[3], x.pData[4], x.pData[5]);
+
+  data->vbz_plus = mvmul(mtranspose(R), velocity_plus).z;
+  data->vbz = mvmul(mtranspose(R), velocity).z;
   data->R33 = R.m[2][2];
 
-  data->W_plus = x_plus.angularVelocity;
-  data->W = x.angularVelocity;
+  data->W_plus.x = x_plus.pData[10];
+  data->W_plus.y = x_plus.pData[11];
+  data->W_plus.z = x_plus.pData[12];
+  data->W.x = x.pData[10];
+  data->W.y = x.pData[11];
+  data->W.z = x.pData[12];
 }
 
 static float c_hat(const float* data, const gp_model_params_t* params) {
