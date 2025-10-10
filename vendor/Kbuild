@@ -270,6 +270,7 @@ obj-y += CMSIS/CMSIS/DSP/Source/TransformFunctions/arm_rfft_init_q15.o
 obj-y += CMSIS/CMSIS/DSP/Source/TransformFunctions/arm_rfft_init_q31.o
 obj-y += CMSIS/CMSIS/DSP/Source/TransformFunctions/arm_rfft_q15.o
 obj-y += CMSIS/CMSIS/DSP/Source/TransformFunctions/arm_rfft_q31.o
+obj-y += CMSIS/CMSIS/DSP/Source/DistanceFunctions/arm_euclidean_distance_f32.o
 
 # FreeRTOS
 obj-y += FreeRTOS/event_groups.o

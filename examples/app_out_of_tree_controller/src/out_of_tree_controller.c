@@ -49,6 +49,7 @@
 #include "power_distribution.h"
 #include "gp_model_params.h"
 #include "out_of_tree_controller.h"
+#include "arm_math.h"
 
 #include "param.h"
 #include "log.h"
@@ -288,6 +289,25 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     torqueX_tilde = c_hat(data.rotation, &torqueX_params);
     torqueY_tilde = c_hat(data.rotation, &torqueY_params);
     torqueZ_tilde = c_hat(data.rotation, &torqueZ_params);
+
+    // Disable learning if close to the equilibrium point
+    float x[12] = {
+      state->position.x, state->position.y, state->position.z,
+      state->velocity.x, state->velocity.y, state->velocity.z,
+      radians(state->attitude.roll), -radians(state->attitude.pitch), radians(state->attitude.yaw),
+      radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z),
+    };
+    float x_eq[12] = {
+      setpoint->position.x, setpoint->position.y, setpoint->position.z,
+      0.0f, 0.0f, 0.0f,
+      0.0f, 0.0f, 0.0f,
+      0.0f, 0.0f, 0.0f,
+    };
+
+    if (arm_euclidean_distance_f32(x, x_eq, 12) < 0.6f) {
+      learning_type = LearningTypeDisable;
+      DEBUG_PRINT("Disabling learning\n");
+    }
   }
 
   control->controlMode = controlModeForceTorque;
