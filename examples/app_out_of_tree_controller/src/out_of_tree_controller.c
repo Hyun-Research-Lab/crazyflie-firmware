@@ -54,6 +54,8 @@
 #include "param.h"
 #include "log.h"
 
+#define ARM (0.707106781f * ARM_LENGTH)
+
 static NominalControllerType nominal_controller = NominalControllerTypePID;
 
 static NominalControllerFunctions nominalControllerFunctions[] = {
@@ -66,22 +68,13 @@ LearningType learning_type = LearningTypeDisable;
 
 // Model parameters from gp_model_params.c
 extern gp_model_params_t thrust_params;
-extern gp_model_params_t torqueX_params;
-extern gp_model_params_t torqueY_params;
-extern gp_model_params_t torqueZ_params;
+// extern gp_model_params_t torqueX_params;
+// extern gp_model_params_t torqueY_params;
+// extern gp_model_params_t torqueZ_params;
 
-static float thrust_tilde = 0.0f;
-static float torqueX_tilde = 0.0f;
-static float torqueY_tilde = 0.0f;
-static float torqueZ_tilde = 0.0f;
-
-// Array of random numbers from random_numbers.c
-extern const int random_numbers_size;
-extern const float random_numbers[];
-static int rand_idx = 0;
-
-data_t data;
-control_t nominal_control = {0};
+static data_t data;
+static control_t nominal_control = {0};
+static control_t full_control = {0};
 
 const arm_matrix_instance_f32 A = { 12, 12, (float32_t[]){
   0.9999999999999858f, 0.0f, 0.0f, 0.009999999999999858f, 0.0f, 0.0f, 0.0f, 0.000490499999999993f, 0.0f, 0.0f, 1.6349999999999767e-06f, 0.0f, 
@@ -110,6 +103,13 @@ const arm_matrix_instance_f32 B = { 12, 4, (float32_t[]){
   0.0f, 605.448576958419f, -28.785762951442653f, -13.090844748070415f, 
   0.0f, -28.785762951442663f, 605.7861977812144f, -36.56178893904129f, 
   0.0f, -13.090844748070415f, -36.56178893904129f, 344.31484850737957f, 
+} };
+
+arm_matrix_instance_f32 T = { 4, 4, (float32_t[]){
+  1.0f, 1.0f, 1.0f, 1.0f,
+  -ARM, -ARM,  ARM,  ARM,
+  -ARM,  ARM,  ARM, -ARM,
+  -THRUST2TORQUE, THRUST2TORQUE, -THRUST2TORQUE, THRUST2TORQUE,
 } };
 
 void linear_dynamics_model(data_t *data, const control_t* control, const setpoint_t* setpoint, const sensorData_t* sensors, const state_t* state) {
@@ -191,16 +191,15 @@ void linear_dynamics_model(data_t *data, const control_t* control, const setpoin
 
 static float c_hat(const float* data, const gp_model_params_t* params) {
   float y_star = 0.0f;
-  float neg_gamma = -0.5f / params->lengthscale_sq;
 
   for (int sample_idx = 0; sample_idx < params->NUM_SAMPLES; sample_idx++) {
     // Kernel
     float sqdist = 0.0f;
     for (int data_idx = 0; data_idx < params->NUM_DIMS; data_idx++) {
       float diff = data[data_idx] - params->X_train[sample_idx*params->NUM_DIMS + data_idx];
-      sqdist += diff * diff;
+      sqdist += (diff * diff) * params->neg_gamma[data_idx];
     }
-    float rbf_kernel = expf(neg_gamma * sqdist);
+    float rbf_kernel = expf(sqdist);
 
     y_star += rbf_kernel * params->alpha_times_outputscale[sample_idx];
   }
@@ -276,34 +275,46 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 
   // Convert nominal control to controlModeForceTorque
   if (nominal_control.controlMode == controlModeLegacy) {
-    const float arm = 0.707106781f * ARM_LENGTH;
     control_t temp_control = nominal_control;
 
     nominal_control.controlMode = controlModeForceTorque;
     nominal_control.thrustSi =  temp_control.thrust                 / UINT16_MAX * powerDistributionGetMaxThrust();
-    nominal_control.torqueX  =  temp_control.roll   / 2.0f * arm    / UINT16_MAX * powerDistributionGetMaxThrust();
-    nominal_control.torqueY  = -temp_control.pitch  / 2.0f * arm    / UINT16_MAX * powerDistributionGetMaxThrust();
+    nominal_control.torqueX  =  temp_control.roll   / 2.0f * ARM    / UINT16_MAX * powerDistributionGetMaxThrust();
+    nominal_control.torqueY  = -temp_control.pitch  / 2.0f * ARM    / UINT16_MAX * powerDistributionGetMaxThrust();
     nominal_control.torqueZ  = -temp_control.yaw    * THRUST2TORQUE / UINT16_MAX * powerDistributionGetMaxThrust();
   }
 
   if (learning_type == LearningTypeDisable) {
     // Return unaltered nominal control
-    thrust_tilde = 0.0f;
-    torqueX_tilde = 0.0f;
-    torqueY_tilde = 0.0f;
-    torqueZ_tilde = 0.0f;
+    full_control.thrustSi = nominal_control.thrustSi;
+    full_control.torqueX = nominal_control.torqueX;
+    full_control.torqueY = nominal_control.torqueY;
+    full_control.torqueZ = nominal_control.torqueZ;
   } else if (learning_type == LearningTypeTraining) {
-    // Add exploration noise to the nominal control
-    thrust_tilde = nominal_control.thrustSi * random_numbers[4*rand_idx];
-    torqueX_tilde = nominal_control.torqueX * random_numbers[4*rand_idx + 1];
-    torqueY_tilde = nominal_control.torqueY * random_numbers[4*rand_idx + 2];
-    torqueZ_tilde = nominal_control.torqueZ * random_numbers[4*rand_idx + 3];
+    // Apply capping to the nominal control
+    motors_thrust_uncapped_t motorThrustUncapped;
+    motors_thrust_pwm_t motorPwm;
 
-    if (RATE_DO_EXECUTE(10, tick)) {
-      if (++rand_idx >= random_numbers_size / 4) {
-        rand_idx = 0;
-      }
-    }
+    powerDistribution(&nominal_control, &motorThrustUncapped);
+    powerDistributionCap(&motorThrustUncapped, &motorPwm);
+
+    arm_matrix_instance_f32 motorThrustVec = { 4, 1, (float32_t[]){
+      ((float)motorPwm.motors.m1) / UINT16_MAX * THRUST_MAX,
+      ((float)motorPwm.motors.m2) / UINT16_MAX * THRUST_MAX,
+      ((float)motorPwm.motors.m3) / UINT16_MAX * THRUST_MAX,
+      ((float)motorPwm.motors.m4) / UINT16_MAX * THRUST_MAX
+    } };
+
+    float uVec_data[4];
+    arm_matrix_instance_f32 uVec = { 4, 1, uVec_data };
+
+    arm_mat_mult_f32(&T, &motorThrustVec, &uVec);
+
+    full_control.thrustSi = uVec.pData[0];
+    full_control.torqueX = uVec.pData[1];
+    full_control.torqueY = uVec.pData[2];
+    full_control.torqueZ = uVec.pData[3];
+
   } else {
     // Estimate the next state after a given time if the nominal control is applied
     if (learning_type == LearningTypeLinearModel) {
@@ -313,10 +324,13 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     }
 
     // c_hat function
-    thrust_tilde = c_hat(data.translation, &thrust_params);
-    torqueX_tilde = c_hat(data.rotation, &torqueX_params);
-    torqueY_tilde = c_hat(data.rotation, &torqueY_params);
-    torqueZ_tilde = c_hat(data.rotation, &torqueZ_params);
+    full_control.thrustSi = c_hat(data.translation, &thrust_params);
+    full_control.torqueX = nominal_control.torqueX;
+    full_control.torqueY = nominal_control.torqueY;
+    full_control.torqueZ = nominal_control.torqueZ;
+    // torqueX_tilde = c_hat(data.rotation, &torqueX_params);
+    // torqueY_tilde = c_hat(data.rotation, &torqueY_params);
+    // torqueZ_tilde = c_hat(data.rotation, &torqueZ_params);
 
     // Disable learning if close to the equilibrium point
     float x[12] = {
@@ -333,16 +347,16 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     };
 
     if (arm_euclidean_distance_f32(x, x_eq, 12) < 0.6f) {
-      learning_type = LearningTypeDisable;
+      // learning_type = LearningTypeDisable;
       DEBUG_PRINT("Disabling learning\n");
     }
   }
 
   control->controlMode = controlModeForceTorque;
-  control->thrustSi = nominal_control.thrustSi + thrust_tilde;
-  control->torqueX = nominal_control.torqueX + torqueX_tilde;
-  control->torqueY = nominal_control.torqueY + torqueY_tilde;
-  control->torqueZ = nominal_control.torqueZ + torqueZ_tilde;
+  control->thrustSi = full_control.thrustSi;
+  control->torqueX = full_control.torqueX;
+  control->torqueY = full_control.torqueY;
+  control->torqueZ = full_control.torqueZ;
 }
 
 
@@ -362,10 +376,10 @@ LOG_ADD(LOG_FLOAT, nominal_torqueX, &nominal_control.torqueX)
 LOG_ADD(LOG_FLOAT, nominal_torqueY, &nominal_control.torqueY)
 LOG_ADD(LOG_FLOAT, nominal_torqueZ, &nominal_control.torqueZ)
 
-LOG_ADD(LOG_FLOAT, thrust_tilde, &thrust_tilde)
-LOG_ADD(LOG_FLOAT, torqueX_tilde, &torqueX_tilde)
-LOG_ADD(LOG_FLOAT, torqueY_tilde, &torqueY_tilde)
-LOG_ADD(LOG_FLOAT, torqueZ_tilde, &torqueZ_tilde)
+LOG_ADD(LOG_FLOAT, full_thrust, &full_control.thrustSi)
+LOG_ADD(LOG_FLOAT, full_torqueX, &full_control.torqueX)
+LOG_ADD(LOG_FLOAT, full_torqueY, &full_control.torqueY)
+LOG_ADD(LOG_FLOAT, full_torqueZ, &full_control.torqueZ)
 
 LOG_ADD(LOG_FLOAT, vbz_plus, &data.vbz_plus)
 LOG_ADD(LOG_FLOAT, vbz, &data.vbz)
