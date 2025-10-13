@@ -346,8 +346,8 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       0.0f, 0.0f, 0.0f,
     };
 
-    if (arm_euclidean_distance_f32(x, x_eq, 12) < 0.6f) {
-      // learning_type = LearningTypeDisable;
+    if (arm_euclidean_distance_f32(x, x_eq, 12) < 0.25f) {
+      learning_type = LearningTypeDisable;
       DEBUG_PRINT("Disabling learning\n");
     }
   }
