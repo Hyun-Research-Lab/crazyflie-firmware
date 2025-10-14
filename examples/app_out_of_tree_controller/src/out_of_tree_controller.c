@@ -72,6 +72,11 @@ extern gp_model_params_t thrust_params;
 // extern gp_model_params_t torqueY_params;
 // extern gp_model_params_t torqueZ_params;
 
+// Array of random numbers from random_numbers.c
+extern const int random_numbers_size;
+extern const float random_numbers[];
+static int rand_idx = 0;
+
 static data_t data;
 static control_t nominal_control = {0};
 static control_t full_control = {0};
@@ -291,29 +296,17 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     full_control.torqueY = nominal_control.torqueY;
     full_control.torqueZ = nominal_control.torqueZ;
   } else if (learning_type == LearningTypeTraining) {
-    // Apply capping to the nominal control
-    motors_thrust_uncapped_t motorThrustUncapped;
-    motors_thrust_pwm_t motorPwm;
+    // Add exploration noise to the nominal control
+    full_control.thrustSi = nominal_control.thrustSi + nominal_control.thrustSi * random_numbers[rand_idx];
+    full_control.torqueX = nominal_control.torqueX + nominal_control.torqueX * random_numbers[rand_idx];
+    full_control.torqueY = nominal_control.torqueY + nominal_control.torqueY * random_numbers[rand_idx];
+    full_control.torqueZ = nominal_control.torqueZ + nominal_control.torqueZ * random_numbers[rand_idx];
 
-    powerDistribution(&nominal_control, &motorThrustUncapped);
-    powerDistributionCap(&motorThrustUncapped, &motorPwm);
-
-    arm_matrix_instance_f32 motorThrustVec = { 4, 1, (float32_t[]){
-      ((float)motorPwm.motors.m1) / UINT16_MAX * THRUST_MAX,
-      ((float)motorPwm.motors.m2) / UINT16_MAX * THRUST_MAX,
-      ((float)motorPwm.motors.m3) / UINT16_MAX * THRUST_MAX,
-      ((float)motorPwm.motors.m4) / UINT16_MAX * THRUST_MAX
-    } };
-
-    float uVec_data[4];
-    arm_matrix_instance_f32 uVec = { 4, 1, uVec_data };
-
-    arm_mat_mult_f32(&T, &motorThrustVec, &uVec);
-
-    full_control.thrustSi = uVec.pData[0];
-    full_control.torqueX = uVec.pData[1];
-    full_control.torqueY = uVec.pData[2];
-    full_control.torqueZ = uVec.pData[3];
+    if (RATE_DO_EXECUTE(10, tick)) {
+      if (++rand_idx >= random_numbers_size) {
+        rand_idx = 0;
+      }
+    }
 
   } else {
     // Estimate the next state after a given time if the nominal control is applied
