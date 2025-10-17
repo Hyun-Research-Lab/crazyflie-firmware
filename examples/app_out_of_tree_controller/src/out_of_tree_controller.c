@@ -67,10 +67,8 @@ static NominalControllerFunctions nominalControllerFunctions[] = {
 LearningType learning_type = LearningTypeDisable;
 
 // Model parameters from gp_model_params.c
-extern gp_model_params_t thrust_params;
-// extern gp_model_params_t torqueX_params;
-// extern gp_model_params_t torqueY_params;
-// extern gp_model_params_t torqueZ_params;
+extern gp_thrust_params_t thrust_params;
+extern gp_torque_params_t torque_params;
 
 // Array of random numbers from random_numbers.c
 extern const int random_numbers_size;
@@ -194,21 +192,50 @@ void linear_dynamics_model(data_t *data, const control_t* control, const setpoin
   data->W.z = x.pData[12];
 }
 
-static float c_hat(const float* data, const gp_model_params_t* params) {
+static void gp_predict_thrust(const float* data, const gp_thrust_params_t* params, float* thrust) {
   float y_star = 0.0f;
 
-  for (int sample_idx = 0; sample_idx < params->NUM_SAMPLES; sample_idx++) {
+  for (int sample_idx = 0; sample_idx < GP_MODEL_NUM_SAMPLES; sample_idx++) {
     // Kernel
     float sqdist = 0.0f;
-    for (int data_idx = 0; data_idx < params->NUM_DIMS; data_idx++) {
-      float diff = data[data_idx] - params->X_train[sample_idx*params->NUM_DIMS + data_idx];
+    for (int data_idx = 0; data_idx < GP_MODEL_THRUST_DATA_DIM; data_idx++) {
+      float diff = data[data_idx] - params->X_train[sample_idx * GP_MODEL_THRUST_DATA_DIM + data_idx];
       sqdist += (diff * diff) * params->neg_gamma[data_idx];
     }
     float rbf_kernel = expf(sqdist);
 
     y_star += rbf_kernel * params->alpha_times_outputscale[sample_idx];
   }
-  return y_star;
+  *thrust = y_star;
+}
+
+static void gp_predict_torque(const float* data, const gp_torque_params_t* params, float* torque) {
+  float y_starX = 0.0f;
+  float y_starY = 0.0f;
+  float y_starZ = 0.0f;
+
+  for (int sample_idx = 0; sample_idx < GP_MODEL_NUM_SAMPLES; sample_idx++) {
+    // Kernel
+    float sqdistX = 0.0f;
+    float sqdistY = 0.0f;
+    float sqdistZ = 0.0f;
+    for (int data_idx = 0; data_idx < GP_MODEL_TORQUE_DATA_DIM; data_idx++) {
+      float diff = data[data_idx] - params->X_train[sample_idx * GP_MODEL_TORQUE_DATA_DIM + data_idx];
+      sqdistX += (diff * diff) * params->neg_gammaX[data_idx];
+      sqdistY += (diff * diff) * params->neg_gammaY[data_idx];
+      sqdistZ += (diff * diff) * params->neg_gammaZ[data_idx];
+    }
+    float rbf_kernelX = expf(sqdistX);
+    float rbf_kernelY = expf(sqdistY);
+    float rbf_kernelZ = expf(sqdistZ);
+
+    y_starX += rbf_kernelX * params->alpha_times_outputscaleX[sample_idx];
+    y_starY += rbf_kernelY * params->alpha_times_outputscaleY[sample_idx];
+    y_starZ += rbf_kernelZ * params->alpha_times_outputscaleZ[sample_idx];
+  }
+  torque[0] = y_starX;
+  torque[1] = y_starY;
+  torque[2] = y_starZ;
 }
 
 static void nonlinear_dynamics_model(data_t *data, const control_t* control, const sensorData_t* sensors, const state_t* state, const float dt) {
@@ -317,13 +344,8 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     }
 
     // c_hat function
-    full_control.thrustSi = c_hat(data.translation, &thrust_params);
-    full_control.torqueX = nominal_control.torqueX;
-    full_control.torqueY = nominal_control.torqueY;
-    full_control.torqueZ = nominal_control.torqueZ;
-    // torqueX_tilde = c_hat(data.rotation, &torqueX_params);
-    // torqueY_tilde = c_hat(data.rotation, &torqueY_params);
-    // torqueZ_tilde = c_hat(data.rotation, &torqueZ_params);
+    gp_predict_thrust(data.translation, &thrust_params, &full_control.thrustSi);
+    gp_predict_torque(data.rotation, &torque_params, full_control.torque);
 
     // Disable learning if close to the equilibrium point
     float x[12] = {
