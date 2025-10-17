@@ -1,5 +1,5 @@
-#ifndef __OUT_OF_TREE_CONTROLLER_H__
-#define __OUT_OF_TREE_CONTROLLER_H__
+#ifndef OUT_OF_TREE_CONTROLLER_H
+#define OUT_OF_TREE_CONTROLLER_H
 
 #include "stabilizer_types.h"
 
@@ -44,6 +44,6 @@ typedef enum {
 
 void controllerOutOfTreeInit();
 bool controllerOutOfTreeTest();
-void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick);
+void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const stabilizerStep_t tick);
 
-#endif // __OUT_OF_TREE_CONTROLLER_H__
+#endif // OUT_OF_TREE_CONTROLLER_H

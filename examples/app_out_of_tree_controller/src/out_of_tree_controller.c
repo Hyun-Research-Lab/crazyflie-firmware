@@ -108,13 +108,6 @@ const arm_matrix_instance_f32 B = { 12, 4, (float32_t[]){
   0.0f, -13.090844748070415f, -36.56178893904129f, 344.31484850737957f, 
 } };
 
-arm_matrix_instance_f32 T = { 4, 4, (float32_t[]){
-  1.0f, 1.0f, 1.0f, 1.0f,
-  -ARM, -ARM,  ARM,  ARM,
-  -ARM,  ARM,  ARM, -ARM,
-  -THRUST2TORQUE, THRUST2TORQUE, -THRUST2TORQUE, THRUST2TORQUE,
-} };
-
 void linear_dynamics_model(data_t *data, const control_t* control, const setpoint_t* setpoint, const sensorData_t* sensors, const state_t* state) {
   // States
   arm_matrix_instance_f32 x = { 12, 1, (float32_t[]){
@@ -184,12 +177,12 @@ void linear_dynamics_model(data_t *data, const control_t* control, const setpoin
   data->vbz = mvmul(mtranspose(R), velocity).z;
   data->R33 = R.m[2][2];
 
-  data->W_plus.x = x_plus.pData[10];
-  data->W_plus.y = x_plus.pData[11];
-  data->W_plus.z = x_plus.pData[12];
-  data->W.x = x.pData[10];
-  data->W.y = x.pData[11];
-  data->W.z = x.pData[12];
+  data->W_plus.x = x_plus.pData[9];
+  data->W_plus.y = x_plus.pData[10];
+  data->W_plus.z = x_plus.pData[11];
+  data->W.x = x.pData[9];
+  data->W.y = x.pData[10];
+  data->W.z = x.pData[11];
 }
 
 static void gp_predict_thrust(const float* data, const gp_thrust_params_t* params, float* thrust) {
