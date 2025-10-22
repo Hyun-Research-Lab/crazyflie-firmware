@@ -68,7 +68,9 @@ LearningType learning_type = LearningTypeDisable;
 
 // Model parameters from gp_model_params.c
 extern gp_thrust_params_t thrust_params;
+#ifndef GP_MODEL_THRUST_ONLY
 extern gp_torque_params_t torque_params;
+#endif
 
 // Array of random numbers from random_numbers.c
 extern const int random_numbers_size;
@@ -202,6 +204,7 @@ static void gp_predict_thrust(const float* data, const gp_thrust_params_t* param
   *thrust = y_star;
 }
 
+#ifndef GP_MODEL_THRUST_ONLY
 static void gp_predict_torque(const float* data, const gp_torque_params_t* params, float* torque) {
   float y_starX = 0.0f;
   float y_starY = 0.0f;
@@ -230,6 +233,7 @@ static void gp_predict_torque(const float* data, const gp_torque_params_t* param
   torque[1] = y_starY;
   torque[2] = y_starZ;
 }
+#endif
 
 static void nonlinear_dynamics_model(data_t *data, const control_t* control, const sensorData_t* sensors, const state_t* state, const float dt) {
   // Diagonal of the inertia matrix
@@ -338,7 +342,14 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 
     // c_hat function
     gp_predict_thrust(data.translation, &thrust_params, &full_control.thrustSi);
+
+#ifdef GP_MODEL_THRUST_ONLY
+    full_control.torqueX = nominal_control.torqueX;
+    full_control.torqueY = nominal_control.torqueY;
+    full_control.torqueZ = nominal_control.torqueZ;
+#else
     gp_predict_torque(data.rotation, &torque_params, full_control.torque);
+#endif
 
     // Disable learning if close to the equilibrium point
     float x[12] = {
