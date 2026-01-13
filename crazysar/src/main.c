@@ -25,14 +25,6 @@
  * out_of_tree_controller.c - App layer application of an out of tree controller.
  */
 
-// Crazyflies:
-// 1: good
-// 2: really good
-// 3: bad
-// 4: good
-// 5: really good
-// 6: good
-
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -58,10 +50,7 @@
 #include "radiolink.h"
 #include "param.h"
 #include "log.h"
-
-#define FILTER_SIZE 50
-#define NETWORK_RATE RATE_100_HZ
-#define NODE_UNSET UINT8_MAX
+#include "main.h"
 
 uint8_t disable_props = 0;
 uint8_t enable_filters = 0;
@@ -376,21 +365,28 @@ void p2pCB(P2PPacket* packet) {
   float u_m2 =                             -self->kv_geo*self->ev2_geo - beta*(n-1)*self->ev2_geo*ev_norm + vdot(t3_d, re_d_ddot);
 
   // Add a robustness term
-  self->ex_rob = vsub(re, re_d);
-  self->ev_rob = vsub(re_dot, re_d_dot);
-  self->ei_rob = vadd(self->ei_rob, vdiv(self->ex_rob, NETWORK_RATE));
-  self->ei_rob = vclampscl2(self->ei_rob, -self->sigma_rob, self->sigma_rob);
+  // self->ex_rob = vsub(re, re_d);
+  // self->ev_rob = vsub(re_dot, re_d_dot);
+  // self->ei_rob = vadd(self->ei_rob, vdiv(self->ex_rob, NETWORK_RATE));
+  // self->ei_rob = vclampscl2(self->ei_rob, -self->sigma_rob, self->sigma_rob);
 
-  struct mat33 P_onto_re = mscl(1.0f/vdot(re, re), vouter(re, re));
+  // struct mat33 P_onto_re = mscl(1.0f/vdot(re, re), vouter(re, re));
+  // struct vec u = vadd3(
+  //   vscl(u_m1, t2),
+  //   vscl(u_m2, t3),
+  //   vadd(mvmul(P_onto_re, vadd3(
+  //       vscl(-self->kx_rob, self->ex_rob),
+  //       vscl(-self->kv_rob, self->ev_rob),
+  //       re_d_ddot)),
+  //     vscl(-self->ki_rob, self->ei_rob)));
+  // // vscl(-self->kx_rob*self->ex_rob - self->kv_rob*self->ev_rob - self->ki_rob*self->ei_rob + vdot(re_d_ddot, t1), t1));
+
+  // Disturbance observer
   struct vec u = vadd3(
     vscl(u_m1, t2),
     vscl(u_m2, t3),
-    vadd(mvmul(P_onto_re, vadd3(
-        vscl(-self->kx_rob, self->ex_rob),
-        vscl(-self->kv_rob, self->ev_rob),
-        re_d_ddot)),
-      vscl(-self->ki_rob, self->ei_rob)));
-  // vscl(-self->kx_rob*self->ex_rob - self->kv_rob*self->ev_rob - self->ki_rob*self->ei_rob + vdot(re_d_ddot, t1), t1));
+    vneg(disturbance_observer_step(re, re_dot, u, b1_d))
+  );
 
   self->F_d_bar = vscl(self->m, vadd(vdiv(F_d_l_bar, m_l), u));
   struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
