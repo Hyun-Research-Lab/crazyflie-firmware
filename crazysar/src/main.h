@@ -4,4 +4,4 @@
 #define NETWORK_RATE RATE_100_HZ
 #define NODE_UNSET UINT8_MAX
 
-struct vec disturbance_observer_step(struct vec re, struct vec re_dot, struct vec u, struct vec b1);
+void disturbance_observer_step(struct vec* u, const struct vec* re, const struct vec* re_dot, const struct vec* b1);

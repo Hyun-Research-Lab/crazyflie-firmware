@@ -36,7 +36,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#define DEBUG_MODULE "MYCONTROLLER"
+#define DEBUG_MODULE "CRAZYSAR"
 #include "debug.h"
 
 #include "controller.h"
@@ -364,6 +364,8 @@ void p2pCB(P2PPacket* packet) {
   float u_m1 = -self->kR_geo*self->eR_geo - self->kv_geo*self->ev1_geo - beta*(n-1)*self->ev1_geo*ev_norm + vdot(t2_d, re_d_ddot);
   float u_m2 =                             -self->kv_geo*self->ev2_geo - beta*(n-1)*self->ev2_geo*ev_norm + vdot(t3_d, re_d_ddot);
 
+  struct vec u = vadd(vscl(u_m1, t2), vscl(u_m2, t3));
+
   // Add a robustness term
   // self->ex_rob = vsub(re, re_d);
   // self->ev_rob = vsub(re_dot, re_d_dot);
@@ -382,11 +384,7 @@ void p2pCB(P2PPacket* packet) {
   // // vscl(-self->kx_rob*self->ex_rob - self->kv_rob*self->ev_rob - self->ki_rob*self->ei_rob + vdot(re_d_ddot, t1), t1));
 
   // Disturbance observer
-  struct vec u = vadd3(
-    vscl(u_m1, t2),
-    vscl(u_m2, t3),
-    vneg(disturbance_observer_step(re, re_dot, u, b1_d))
-  );
+  disturbance_observer_step(&u, &re, &re_dot, &t1);
 
   self->F_d_bar = vscl(self->m, vadd(vdiv(F_d_l_bar, m_l), u));
   struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
