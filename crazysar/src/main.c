@@ -126,14 +126,15 @@ typedef struct controllerLee2_s {
   float flap_amp;
   float flap_phase;
 
-  uint8_t trajectory;
   float l;
   float follower_yaw;
+
+  struct vec re_d;
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
-  .node = NODE_UNSET, // 0 is leader, 1, 2, 3, ... are followers
-  .parent = NODE_UNSET,
+  .node = 0, // node = parent is leader
+  .parent = 0,
 
   .m = CF_MASS, // kg
   .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
@@ -161,7 +162,6 @@ static controllerLee2_t g_self2 = {
   .flap_amp = M_PI_F/8.0f,
   .flap_phase = -0.3f,
 
-  .trajectory = 0,
   .l = 0,
   .follower_yaw = 0.0f,
 };
@@ -191,12 +191,12 @@ void p2pCB(P2PPacket* packet) {
   controllerLee2_t* self = &g_self2;
 
   // Leader does not process any packets
-  if (self->node == 0) {
+  if (self->node == self->parent) {
     return;
   }
 
-  // Copy time from leader
-  if (packet->port == 0) {
+  // Copy time from node 1 (TODO)
+  if (packet->port == 1) {
     memcpy(&t, packet->data, sizeof(float));
   }
   
@@ -234,11 +234,12 @@ void p2pCB(P2PPacket* packet) {
   self->l = l;
   
   // Desired values
-  struct vec re_d;
-  struct vec re_d_dot;
-  struct vec re_d_ddot;
+  struct vec re_d = self->re_d;
+  struct vec re_d_dot = vzero();
+  struct vec re_d_ddot = vzero();
   struct vec b1_d = mkvec(cosf(self->follower_yaw), sinf(self->follower_yaw), 0);
 
+  /*
   // Straight line
   if (self->trajectory == 0) {
     switch (self->node) {
@@ -343,6 +344,7 @@ void p2pCB(P2PPacket* packet) {
     re_d_dot = vzero();
     re_d_ddot = vzero();
   }
+  */
 
   // Geometric controller
   float beta = 2.7f;
@@ -415,7 +417,7 @@ void appMain() {
   controllerLee2_t* self = &g_self2;
 
   // Wait for the node and parent to be set
-  while (self->node == NODE_UNSET || self->parent == NODE_UNSET) {
+  while (self->node == 0 || self->parent == 0) {
     vTaskDelay(M2T(100));
   }
 
@@ -436,7 +438,7 @@ void appMain() {
 
   while (1) {
     vTaskDelay(F2T(NETWORK_RATE));
-    if (self->node == 0 && vmag(self->F_d_bar) > 1e-6f) {
+    if (self->node == self->parent && vmag(self->F_d_bar) > 1e-6f) {
       t += 1.0f/NETWORK_RATE;
     }
 
@@ -710,7 +712,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
         desiredYaw)));
     }
 
-    if (self->node == 0) {
+    if (self->node == self->parent) {
       struct vec b3 = mcolumn(R, 2);
       struct vec b3_d = mcolumn(R_d, 2);
       struct vec F_d = vscl(self->f/vdot(b3_d, b3), b3_d);
@@ -801,8 +803,11 @@ PARAM_ADD(PARAM_FLOAT, flap_freq, &g_self2.flap_freq)
 PARAM_ADD(PARAM_FLOAT, flap_amp, &g_self2.flap_amp)
 PARAM_ADD(PARAM_FLOAT, flap_phase, &g_self2.flap_phase)
 
-PARAM_ADD(PARAM_UINT8, trajectory, &g_self2.trajectory)
 PARAM_ADD(PARAM_FLOAT, follower_yaw, &g_self2.follower_yaw)
+
+PARAM_ADD(PARAM_FLOAT, rod_x, &g_self2.re_d.x)
+PARAM_ADD(PARAM_FLOAT, rod_y, &g_self2.re_d.y)
+PARAM_ADD(PARAM_FLOAT, rod_z, &g_self2.re_d.z)
 
 PARAM_GROUP_STOP(ctrlLee2)
 
