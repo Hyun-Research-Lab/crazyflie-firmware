@@ -129,7 +129,7 @@ typedef struct controllerLee2_s {
   float l;
   float follower_yaw;
 
-  struct vec re_d;
+  struct vec rod;
 } controllerLee2_t;
 
 static controllerLee2_t g_self2 = {
@@ -148,7 +148,7 @@ static controllerLee2_t g_self2 = {
   .kR = 0.007,
   .kW = 0.002,
   .kI = 0.0005,
-  .c2 = 0.8,
+  .c2 = 1.6, // Increased this to help with attitude convergence, might need tuning
 
   .kR_geo = 5.0,
   .kv_geo = 5.0,
@@ -234,7 +234,7 @@ void p2pCB(P2PPacket* packet) {
   self->l = l;
   
   // Desired values
-  struct vec re_d = self->re_d;
+  struct vec re_d = vscl(l, vnormalize(self->rod));
   struct vec re_d_dot = vzero();
   struct vec re_d_ddot = vzero();
   struct vec b1_d = mkvec(cosf(self->follower_yaw), sinf(self->follower_yaw), 0);
@@ -438,7 +438,7 @@ void appMain() {
 
   while (1) {
     vTaskDelay(F2T(NETWORK_RATE));
-    if (self->node == self->parent && vmag(self->F_d_bar) > 1e-6f) {
+    if (self->node == 1 && vmag(self->F_d_bar) > 1e-6f) {
       t += 1.0f/NETWORK_RATE;
     }
 
@@ -458,7 +458,7 @@ void appMain() {
     radiolinkSendP2PPacketBroadcast(&packet);
 
     // If a follower is disabled...
-    if (self->node > 0 && disable_props) {
+    if (self->node != self->parent && disable_props) {
       float accX = logGetFloat(logIdAccX);
       float accY = logGetFloat(logIdAccY);
       float accZ = logGetFloat(logIdAccZ);
@@ -805,9 +805,9 @@ PARAM_ADD(PARAM_FLOAT, flap_phase, &g_self2.flap_phase)
 
 PARAM_ADD(PARAM_FLOAT, follower_yaw, &g_self2.follower_yaw)
 
-PARAM_ADD(PARAM_FLOAT, rod_x, &g_self2.re_d.x)
-PARAM_ADD(PARAM_FLOAT, rod_y, &g_self2.re_d.y)
-PARAM_ADD(PARAM_FLOAT, rod_z, &g_self2.re_d.z)
+PARAM_ADD(PARAM_FLOAT, rod_x, &g_self2.rod.x)
+PARAM_ADD(PARAM_FLOAT, rod_y, &g_self2.rod.y)
+PARAM_ADD(PARAM_FLOAT, rod_z, &g_self2.rod.z)
 
 PARAM_GROUP_STOP(ctrlLee2)
 
