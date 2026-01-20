@@ -100,6 +100,7 @@ typedef struct controllerLee2_s {
   // For leader-follower
   uint8_t node;
   uint8_t parent;
+  bool is_root;
   
   struct vec F_d_bar;
   struct vec x;
@@ -135,6 +136,7 @@ typedef struct controllerLee2_s {
 static controllerLee2_t g_self2 = {
   .node = 0, // node = parent is leader
   .parent = 0,
+  .is_root = false,
 
   .m = CF_MASS, // kg
   .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
@@ -166,19 +168,19 @@ static controllerLee2_t g_self2 = {
   .follower_yaw = 0.0f,
 };
 
-static inline struct mat33 vouter(struct vec a, struct vec b) {
-  struct mat33 out;
-  out.m[0][0] = a.x * b.x;
-  out.m[0][1] = a.x * b.y;
-  out.m[0][2] = a.x * b.z;
-  out.m[1][0] = a.y * b.x;
-  out.m[1][1] = a.y * b.y;
-  out.m[1][2] = a.y * b.z;
-  out.m[2][0] = a.z * b.x;
-  out.m[2][1] = a.z * b.y;
-  out.m[2][2] = a.z * b.z;
-  return out;
-}
+// static inline struct mat33 vouter(struct vec a, struct vec b) {
+//   struct mat33 out;
+//   out.m[0][0] = a.x * b.x;
+//   out.m[0][1] = a.x * b.y;
+//   out.m[0][2] = a.x * b.z;
+//   out.m[1][0] = a.y * b.x;
+//   out.m[1][1] = a.y * b.y;
+//   out.m[1][2] = a.y * b.z;
+//   out.m[2][0] = a.z * b.x;
+//   out.m[2][1] = a.z * b.y;
+//   out.m[2][2] = a.z * b.z;
+//   return out;
+// }
 
 static inline struct vec vclampscl2(struct vec value, float min, float max) {
   return mkvec(
@@ -190,8 +192,8 @@ static inline struct vec vclampscl2(struct vec value, float min, float max) {
 void p2pCB(P2PPacket* packet) {
   controllerLee2_t* self = &g_self2;
 
-  // Leader does not process any packets
-  if (self->node == self->parent) {
+  // Leader and root do not process any packets
+  if (self->node == self->parent || self->is_root) {
     return;
   }
 
@@ -701,6 +703,7 @@ PARAM_GROUP_START(ctrlLee2)
 
 PARAM_ADD(PARAM_UINT8, node, &g_self2.node)
 PARAM_ADD(PARAM_UINT8, parent, &g_self2.parent)
+PARAM_ADD(PARAM_UINT8, is_root, &g_self2.is_root)
 
 PARAM_ADD(PARAM_FLOAT, m, &g_self2.m)
 
