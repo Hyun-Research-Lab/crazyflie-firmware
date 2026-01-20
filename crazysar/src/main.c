@@ -113,14 +113,14 @@ typedef struct controllerLee2_s {
   float ev1_geo;
   float ev2_geo;
 
-  float kx_rob;
-  float kv_rob;
-  float ki_rob;
-  float sigma_rob;
+  // float kx_rob;
+  // float kv_rob;
+  // float ki_rob;
+  // float sigma_rob;
 
-  struct vec ex_rob;
-  struct vec ev_rob;
-  struct vec ei_rob;
+  // struct vec ex_rob;
+  // struct vec ev_rob;
+  // struct vec ei_rob;
 
   float flap_freq;
   float flap_amp;
@@ -153,14 +153,14 @@ static controllerLee2_t g_self2 = {
   .kR_geo = 5.0,
   .kv_geo = 5.0,
 
-  .kx_rob = 5.0,
-  .kv_rob = 5.0,
-  .ki_rob = 2.0,
-  .sigma_rob = 1.0,
+  // .kx_rob = 5.0,
+  // .kv_rob = 5.0,
+  // .ki_rob = 2.0,
+  // .sigma_rob = 1.0,
 
-  .flap_freq = M_PI_F/2.0f,
-  .flap_amp = M_PI_F/8.0f,
-  .flap_phase = -0.3f,
+  .flap_freq = 0.0f,
+  .flap_amp = 0.0f,
+  .flap_phase = 0.0f,
 
   .l = 0,
   .follower_yaw = 0.0f,
@@ -234,117 +234,39 @@ void p2pCB(P2PPacket* packet) {
   self->l = l;
   
   // Desired values
-  struct vec re_d = vscl(l, vnormalize(self->rod));
-  struct vec re_d_dot = vzero();
-  struct vec re_d_ddot = vzero();
+  struct vec re_d;
+  struct vec re_d_dot;
+  struct vec re_d_ddot;
+
+  struct vec rod_normalized = vnormalize(self->rod);
+
+  // TODO: There is a weird dumb issue here
+  // if (self->flap_freq == 0 && self->flap_amp == 0) {
+    re_d = vscl(l, rod_normalized);
+    re_d_dot = vzero();
+    re_d_ddot = vzero();
+
+  // } else {
+  //   float theta =      self->flap_amp * cosf(self->flap_freq*(t+self->flap_phase));
+  //   float theta_dot =  self->flap_amp * -self->flap_freq*sinf(self->flap_freq*(t+self->flap_phase));
+  //   float theta_ddot = self->flap_amp * -self->flap_freq*self->flap_freq*cosf(self->flap_freq*(t+self->flap_phase));
+
+  //   re_d = vnormalize(mkvec(cosf(theta), 0, sinf(theta) + rod_normalized.z));
+  //   re_d_dot = vscl(theta_dot, mkvec(-sinf(theta), 0, cosf(theta)));
+  //   re_d_ddot = vadd(
+  //     vscl(theta_dot * theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
+  //     vscl(theta_ddot, mkvec(-sinf(theta), 0, cosf(theta)))
+  //   );
+
+  //   float angle = atan2f(rod_normalized.y, rod_normalized.x);
+  //   struct quat q_flap = qaxisangle(vbasis(2), angle);
+
+  //   re_d = vscl(l, qvrot(q_flap, re_d));
+  //   re_d_dot = vscl(l, qvrot(q_flap, re_d_dot));
+  //   re_d_ddot = vscl(l, qvrot(q_flap, re_d_ddot));
+  // }
+
   struct vec b1_d = mkvec(cosf(self->follower_yaw), sinf(self->follower_yaw), 0);
-
-  /*
-  // Straight line
-  if (self->trajectory == 0) {
-    switch (self->node) {
-      case 1:
-      case 2:
-        re_d = mkvec(0, l, 0);
-        break;
-      
-      case 3:
-      case 4:
-        re_d = mkvec(0, -l, 0);
-        break;
-      
-      default:
-        break;
-    }
-
-    re_d_dot = vzero();
-    re_d_ddot = vzero();
-
-  // Square
-  } else if (self->trajectory == 1) {
-    switch (self->node) {
-      case 1:
-        re_d = mkvec(0, l, 0);
-        break;
-      
-      case 2:
-      case 3:
-        re_d = mkvec(l, 0, 0);
-        break;
-      
-      default:
-        break;
-    }
-
-    re_d_dot = vzero();
-    re_d_ddot = vzero();
-
-  // Flapper
-  } else if (self->trajectory == 2) {
-    float theta =      self->flap_amp * cosf(self->flap_freq*t);
-    float theta_dot =  self->flap_amp * -self->flap_freq*sinf(self->flap_freq*t);
-    float theta_ddot = self->flap_amp * -self->flap_freq*self->flap_freq*cosf(self->flap_freq*t);
-
-    float theta_phase =      self->flap_amp * cosf(self->flap_freq*(t+self->flap_phase));
-    float theta_phase_dot =  self->flap_amp * -self->flap_freq*sinf(self->flap_freq*(t+self->flap_phase));
-    float theta_phase_ddot = self->flap_amp * -self->flap_freq*self->flap_freq*cosf(self->flap_freq*(t+self->flap_phase));
-
-    switch (self->node) {
-      case 1:
-        re_d =      vscl(l,                          mkvec(0, cosf(theta),  sinf(theta)));
-        re_d_dot =  vscl(l*theta_dot,                mkvec(0, -sinf(theta), cosf(theta)));
-        re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, -cosf(theta), -sinf(theta))),
-                                  vscl(l*theta_ddot, mkvec(0, -sinf(theta), cosf(theta))));
-        break;
-
-      case 2:
-        re_d =      vscl(l,                                      mkvec(0, cosf(theta_phase),  sinf(theta_phase)));
-        re_d_dot =  vscl(l*theta_phase_dot,                      mkvec(0, -sinf(theta_phase), cosf(theta_phase)));
-        re_d_ddot = vadd(vscl(l*theta_phase_dot*theta_phase_dot, mkvec(0, -cosf(theta_phase), -sinf(theta_phase))),
-                                        vscl(l*theta_phase_ddot, mkvec(0, -sinf(theta_phase), cosf(theta_phase))));
-        break;
-      
-      case 3:
-        re_d =      vscl(l,                          mkvec(0, -cosf(theta), sinf(theta)));
-        re_d_dot =  vscl(l*theta_dot,                mkvec(0, sinf(theta),  cosf(theta)));
-        re_d_ddot = vadd(vscl(l*theta_dot*theta_dot, mkvec(0, cosf(theta),  -sinf(theta))),
-                                  vscl(l*theta_ddot, mkvec(0, sinf(theta),  cosf(theta))));
-        break;
-      
-      case 4:
-        re_d =      vscl(l,                                      mkvec(0, -cosf(theta_phase), sinf(theta_phase)));
-        re_d_dot =  vscl(l*theta_phase_dot,                      mkvec(0, sinf(theta_phase),  cosf(theta_phase)));
-        re_d_ddot = vadd(vscl(l*theta_phase_dot*theta_phase_dot, mkvec(0, cosf(theta_phase),  -sinf(theta_phase))),
-                                        vscl(l*theta_phase_ddot, mkvec(0, sinf(theta_phase),  cosf(theta_phase))));
-        break;
-      
-      default:
-        break;
-    }
-  
-  // Star
-  } else {
-    switch (self->node) {
-      case 1:
-        re_d = mkvec(0, l, 0);
-        break;
-
-      case 2:
-        re_d = mkvec(l, 0, 0);
-        break;
-
-      case 3:
-        re_d = mkvec(0, -l, 0);
-        break;
-
-      default:
-        break;
-    }
-
-    re_d_dot = vzero();
-    re_d_ddot = vzero();
-  }
-  */
 
   // Geometric controller
   float beta = 2.7f;
@@ -568,9 +490,9 @@ void controllerOutOfTreeInit() {
   self->ev1_geo = 0;
   self->ev2_geo = 0;
 
-  self->ex_rob = vzero();
-  self->ev_rob = vzero();
-  self->ei_rob = vzero();
+  // self->ex_rob = vzero();
+  // self->ev_rob = vzero();
+  // self->ei_rob = vzero();
 }
 
 bool controllerOutOfTreeTest() {
@@ -795,19 +717,19 @@ PARAM_ADD(PARAM_UINT8, disable_props, &disable_props)
 PARAM_ADD(PARAM_FLOAT, kR_geo, &g_self2.kR_geo)
 PARAM_ADD(PARAM_FLOAT, kv_geo, &g_self2.kv_geo)
 
-PARAM_ADD(PARAM_FLOAT, kx_rob, &g_self2.kx_rob)
-PARAM_ADD(PARAM_FLOAT, kv_rob, &g_self2.kv_rob)
-PARAM_ADD(PARAM_FLOAT, ki_rob, &g_self2.ki_rob)
-
-PARAM_ADD(PARAM_FLOAT, flap_freq, &g_self2.flap_freq)
-PARAM_ADD(PARAM_FLOAT, flap_amp, &g_self2.flap_amp)
-PARAM_ADD(PARAM_FLOAT, flap_phase, &g_self2.flap_phase)
+// PARAM_ADD(PARAM_FLOAT, kx_rob, &g_self2.kx_rob)
+// PARAM_ADD(PARAM_FLOAT, kv_rob, &g_self2.kv_rob)
+// PARAM_ADD(PARAM_FLOAT, ki_rob, &g_self2.ki_rob)
 
 PARAM_ADD(PARAM_FLOAT, follower_yaw, &g_self2.follower_yaw)
 
 PARAM_ADD(PARAM_FLOAT, rod_x, &g_self2.rod.x)
 PARAM_ADD(PARAM_FLOAT, rod_y, &g_self2.rod.y)
 PARAM_ADD(PARAM_FLOAT, rod_z, &g_self2.rod.z)
+
+PARAM_ADD(PARAM_FLOAT, flap_freq, &g_self2.flap_freq)
+PARAM_ADD(PARAM_FLOAT, flap_amp, &g_self2.flap_amp)
+PARAM_ADD(PARAM_FLOAT, flap_phase, &g_self2.flap_phase)
 
 PARAM_GROUP_STOP(ctrlLee2)
 
