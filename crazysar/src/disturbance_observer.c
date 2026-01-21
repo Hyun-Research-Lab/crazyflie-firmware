@@ -106,5 +106,5 @@ void disturbance_observer_step(struct vec* u, const struct vec* re, const struct
 	arm_mat_mult_f32(&L, &yCx, &LC);
 	arm_mat_add_f32(&AxBu, &LC, &aug_state_est);
 
-	DEBUG_PRINT("Disturbance estimate: %.4f, %.4f, %.4f\n", (double)disturbance_est.x, (double)disturbance_est.y, (double)disturbance_est.z);
+	// DEBUG_PRINT("Disturbance estimate: %.4f, %.4f, %.4f\n", (double)disturbance_est.x, (double)disturbance_est.y, (double)disturbance_est.z);
 }

@@ -777,9 +777,9 @@ LOG_ADD(LOG_FLOAT, ei3, &g_self2.ei.z)
 // LOG_ADD(LOG_FLOAT, W_d_dot2, &g_self2.W_d_dot.y)
 // LOG_ADD(LOG_FLOAT, W_d_dot3, &g_self2.W_d_dot.z)
 
-// LOG_ADD(LOG_FLOAT, F_d1, &g_self2.F_d_bar.x)
-// LOG_ADD(LOG_FLOAT, F_d2, &g_self2.F_d_bar.y)
-// LOG_ADD(LOG_FLOAT, F_d3, &g_self2.F_d_bar.z)
+LOG_ADD(LOG_FLOAT, F_d1, &g_self2.F_d_bar.x)
+LOG_ADD(LOG_FLOAT, F_d2, &g_self2.F_d_bar.y)
+LOG_ADD(LOG_FLOAT, F_d3, &g_self2.F_d_bar.z)
 
 LOG_ADD(LOG_FLOAT, eR_geo, &g_self2.eR_geo)
 LOG_ADD(LOG_FLOAT, ev1_geo, &g_self2.ev1_geo)
