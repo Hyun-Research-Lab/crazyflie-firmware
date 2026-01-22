@@ -2,11 +2,14 @@
 #include "math3d.h"
 #include "main.h"
 #include "static_mem.h"
+#include "log.h"
 
 #define DEBUG_MODULE "DISTOBS"
 #include "debug.h"
 
 arm_matrix_instance_f32 aug_state_est = { 9, 1, (float32_t[]){ 0, 0, 0, 0, 0, 0, 0, 0, 0 } };
+
+struct vec disturbance_est;
 
 const arm_matrix_instance_f32 A = { 9, 9, (float32_t[]){ 
 	1.0f, 0.0f, 0.0f, 0.01f, 0.0f, 0.0f, 0.0001f, 0.0f, 0.0f,
@@ -51,7 +54,7 @@ const arm_matrix_instance_f32 L = { 9, 6, (float32_t[]){
 } };
 
 void disturbance_observer_step(struct vec* u, const struct vec* re, const struct vec* re_dot, const struct vec* b1) {
-	struct vec disturbance_est = mkvec(
+	disturbance_est = mkvec(
 		aug_state_est.pData[6],
 		aug_state_est.pData[7],
 		aug_state_est.pData[8]
@@ -108,3 +111,11 @@ void disturbance_observer_step(struct vec* u, const struct vec* re, const struct
 
 	// DEBUG_PRINT("Disturbance estimate: %.4f, %.4f, %.4f\n", (double)disturbance_est.x, (double)disturbance_est.y, (double)disturbance_est.z);
 }
+
+LOG_GROUP_START(distObs)
+
+LOG_ADD(LOG_FLOAT, distEstX, &disturbance_est.x)
+LOG_ADD(LOG_FLOAT, distEstY, &disturbance_est.y)
+LOG_ADD(LOG_FLOAT, distEstZ, &disturbance_est.z)
+
+LOG_GROUP_STOP(distObs)

@@ -699,7 +699,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   }
 }
 
-PARAM_GROUP_START(ctrlLee2)
+PARAM_GROUP_START(crazysar)
 
 PARAM_ADD(PARAM_UINT8, node, &g_self2.node)
 PARAM_ADD(PARAM_UINT8, parent, &g_self2.parent)
@@ -734,48 +734,48 @@ PARAM_ADD(PARAM_FLOAT, flap_freq, &g_self2.flap_freq)
 PARAM_ADD(PARAM_FLOAT, flap_amp, &g_self2.flap_amp)
 PARAM_ADD(PARAM_FLOAT, flap_phase, &g_self2.flap_phase)
 
-PARAM_GROUP_STOP(ctrlLee2)
+PARAM_GROUP_STOP(crazysar)
 
-LOG_GROUP_START(ctrlLee2)
+LOG_GROUP_START(crazysar)
 
 // Wrench
-// LOG_ADD(LOG_FLOAT, f, &g_self2.f)
-// LOG_ADD(LOG_FLOAT, M1, &g_self2.M.x)
-// LOG_ADD(LOG_FLOAT, M2, &g_self2.M.y)
-// LOG_ADD(LOG_FLOAT, M3, &g_self2.M.z)
+LOG_ADD(LOG_FLOAT, f, &g_self2.f)
+LOG_ADD(LOG_FLOAT, M1, &g_self2.M.x)
+LOG_ADD(LOG_FLOAT, M2, &g_self2.M.y)
+LOG_ADD(LOG_FLOAT, M3, &g_self2.M.z)
 
 // Errors
-// LOG_ADD(LOG_FLOAT, ex1, &g_self2.ex.x)
-// LOG_ADD(LOG_FLOAT, ex2, &g_self2.ex.y)
-// LOG_ADD(LOG_FLOAT, ex3, &g_self2.ex.z)
+LOG_ADD(LOG_FLOAT, ex1, &g_self2.ex.x)
+LOG_ADD(LOG_FLOAT, ex2, &g_self2.ex.y)
+LOG_ADD(LOG_FLOAT, ex3, &g_self2.ex.z)
 
-// LOG_ADD(LOG_FLOAT, ev1, &g_self2.ev.x)
-// LOG_ADD(LOG_FLOAT, ev2, &g_self2.ev.y)
-// LOG_ADD(LOG_FLOAT, ev3, &g_self2.ev.z)
+LOG_ADD(LOG_FLOAT, ev1, &g_self2.ev.x)
+LOG_ADD(LOG_FLOAT, ev2, &g_self2.ev.y)
+LOG_ADD(LOG_FLOAT, ev3, &g_self2.ev.z)
 
 LOG_ADD(LOG_FLOAT, ei1, &g_self2.ei.x)
 LOG_ADD(LOG_FLOAT, ei2, &g_self2.ei.y)
 LOG_ADD(LOG_FLOAT, ei3, &g_self2.ei.z)
 
-// LOG_ADD(LOG_FLOAT, eR1, &g_self2.eR.x)
-// LOG_ADD(LOG_FLOAT, eR2, &g_self2.eR.y)
-// LOG_ADD(LOG_FLOAT, eR3, &g_self2.eR.z)
+LOG_ADD(LOG_FLOAT, eR1, &g_self2.eR.x)
+LOG_ADD(LOG_FLOAT, eR2, &g_self2.eR.y)
+LOG_ADD(LOG_FLOAT, eR3, &g_self2.eR.z)
 
-// LOG_ADD(LOG_FLOAT, eW1, &g_self2.eW.x)
-// LOG_ADD(LOG_FLOAT, eW2, &g_self2.eW.y)
-// LOG_ADD(LOG_FLOAT, eW3, &g_self2.eW.z)
+LOG_ADD(LOG_FLOAT, eW1, &g_self2.eW.x)
+LOG_ADD(LOG_FLOAT, eW2, &g_self2.eW.y)
+LOG_ADD(LOG_FLOAT, eW3, &g_self2.eW.z)
 
-// LOG_ADD(LOG_FLOAT, eI1, &g_self2.eI.x)
-// LOG_ADD(LOG_FLOAT, eI2, &g_self2.eI.y)
-// LOG_ADD(LOG_FLOAT, eI3, &g_self2.eI.z)
+LOG_ADD(LOG_FLOAT, eI1, &g_self2.eI.x)
+LOG_ADD(LOG_FLOAT, eI2, &g_self2.eI.y)
+LOG_ADD(LOG_FLOAT, eI3, &g_self2.eI.z)
 
-// LOG_ADD(LOG_FLOAT, W_d1, &g_self2.W_d.x)
-// LOG_ADD(LOG_FLOAT, W_d2, &g_self2.W_d.y)
-// LOG_ADD(LOG_FLOAT, W_d3, &g_self2.W_d.z)
+LOG_ADD(LOG_FLOAT, W_d1, &g_self2.W_d.x)
+LOG_ADD(LOG_FLOAT, W_d2, &g_self2.W_d.y)
+LOG_ADD(LOG_FLOAT, W_d3, &g_self2.W_d.z)
 
-// LOG_ADD(LOG_FLOAT, W_d_dot1, &g_self2.W_d_dot.x)
-// LOG_ADD(LOG_FLOAT, W_d_dot2, &g_self2.W_d_dot.y)
-// LOG_ADD(LOG_FLOAT, W_d_dot3, &g_self2.W_d_dot.z)
+LOG_ADD(LOG_FLOAT, W_d_dot1, &g_self2.W_d_dot.x)
+LOG_ADD(LOG_FLOAT, W_d_dot2, &g_self2.W_d_dot.y)
+LOG_ADD(LOG_FLOAT, W_d_dot3, &g_self2.W_d_dot.z)
 
 LOG_ADD(LOG_FLOAT, F_d1, &g_self2.F_d_bar.x)
 LOG_ADD(LOG_FLOAT, F_d2, &g_self2.F_d_bar.y)
@@ -790,6 +790,6 @@ LOG_ADD(LOG_FLOAT, ev2_geo, &g_self2.ev2_geo)
 // LOG_ADD(LOG_FLOAT, ei_rob, &g_self2.ei_rob)
 
 LOG_ADD(LOG_FLOAT, t, &t)
-// LOG_ADD(LOG_FLOAT, l, &g_self2.l)
+LOG_ADD(LOG_FLOAT, l, &g_self2.l)
 
-LOG_GROUP_STOP(ctrlLee2)
+LOG_GROUP_STOP(crazysar)
