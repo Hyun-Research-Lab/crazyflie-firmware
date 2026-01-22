@@ -57,6 +57,8 @@ uint8_t enable_filters = 0;
 
 float t = 0;
 
+struct vec target_position_root = { 0, 0, 0 };
+
 typedef struct controllerLee2_s {
   // Quadrotor parameters
   float m;
@@ -192,8 +194,26 @@ static inline struct vec vclampscl2(struct vec value, float min, float max) {
 void p2pCB(P2PPacket* packet) {
   controllerLee2_t* self = &g_self2;
 
-  // Leader and root do not process any packets
-  if (self->node == self->parent || self->is_root) {
+  // Leader does not process any packets
+  if (self->node == self->parent) {
+    return;
+  }
+
+  if (self->is_root) {
+    if (veq(target_position_root, vzero())) {
+      target_position_root = self->x;
+    }
+
+    setpoint_t setpoint = {0};
+    setpoint.mode.x = modeAbs;
+    setpoint.mode.y = modeAbs;
+    setpoint.mode.z = modeAbs;
+
+    setpoint.position.x = target_position_root.x;
+    setpoint.position.y = target_position_root.y;
+    setpoint.position.z = target_position_root.z;
+
+    commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_CRTP);
     return;
   }
 
