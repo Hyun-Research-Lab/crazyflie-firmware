@@ -41,7 +41,6 @@
 
 #include "controller.h"
 #include "math3d.h"
-#include "controller_lee.h"
 #include "platform_defaults.h"
 #include "physicalConstants.h"
 #include "commander.h"
@@ -52,123 +51,94 @@
 #include "log.h"
 #include "main.h"
 
-uint8_t disable_props = 0;
-uint8_t enable_filters = 0;
+static uint8_t disable_props = 0;
+static uint8_t enable_filters = 0;
 
-float t = 0;
+static float t = 0;
 
-struct vec target_position_root = { 0, 0, 0 };
+static struct vec target_position_root = { 0, 0, 0 };
 
-typedef struct controllerLee2_s {
-  // Quadrotor parameters
-  float m;
-  struct vec J; // Inertia matrix (diagonal matrix); kg m^2
+// Quadrotor parameters
+static float m = CF_MASS; // kg
+static struct vec J = { 16.571710e-6f, 16.655602e-6f, 29.261652e-6f }; // kg m^2
 
-  // Gains
-  float kx;
-  float kv;
-  float ki;
-  float c1;
-  float sigma;
+// Gains
+static float kx = 7.0f;
+static float kv = 4.0f;
+static float ki = 1.0f;
+static float c1 = 3.6f;
+static float sigma = 1.0f;
 
-  float kR;
-  float kW;
-  float kI;
-  float c2;
+static float kR = 0.007f;
+static float kW = 0.002f;
+static float kI = 0.0005f;
+static float c2 = 1.6f; // Increased this to help with attitude convergence, might need tuning
 
-  // Errors
-  struct vec ex;
-  struct vec ev;
-  struct vec ei;
+// Errors
+static struct vec ex = { 0, 0, 0 };
+static struct vec ev = { 0, 0, 0 };
+static struct vec ei = { 0, 0, 0 };
 
-  struct vec eR;
-  struct vec eW;
-  struct vec eI;
+static struct vec eR = { 0, 0, 0 };
+static struct vec eW = { 0, 0, 0 };
+static struct vec eI = { 0, 0, 0 };
 
-  // Wrench
-  float f;
-  struct vec M;
+// Wrench
+static float f = 0;
+static struct vec M = { 0, 0, 0 };
 
-  // Previous values
-  struct mat33 R_d_prev;
-  struct vec W_d_prev;
+// Previous values
+static struct mat33 R_d_prev = { .m = {
+  { NAN, NAN, NAN },
+  { NAN, NAN, NAN },
+  { NAN, NAN, NAN }
+} };
+static struct vec W_d_prev = { NAN, NAN, NAN };
 
-  struct vec W_d_raw[FILTER_SIZE];
-  struct vec W_d_dot_raw[FILTER_SIZE];
+static struct vec W_d_raw[FILTER_SIZE];
+static struct vec W_d_dot_raw[FILTER_SIZE];
 
-  struct vec W_d;
-  struct vec W_d_dot;
+static struct vec W_d = { 0, 0, 0 };
+static struct vec W_d_dot = { 0, 0, 0 };
 
-  // For leader-follower
-  uint8_t node;
-  uint8_t parent;
-  bool is_root;
-  
-  struct vec F_d_bar;
-  struct vec x;
-  struct vec v;
-  struct mat33 R;
+// For leader-follower
+static uint8_t node = 0; // node = parent is leader
+static uint8_t parent = 0;
+static bool is_root = false;
 
-  float kR_geo;
-  float kv_geo;
+static struct vec F_d_bar = { 0, 0, 0 };
+static struct vec x = { 0, 0, 0 };
+static struct vec v = { 0, 0, 0 };
+static struct mat33 R = { .m = {
+  { 1, 0, 0 },
+  { 0, 1, 0 },
+  { 0, 0, 1 }
+} };
 
-  float eR_geo;
-  float ev1_geo;
-  float ev2_geo;
+static float kR_geo = 5.0f;
+static float kv_geo = 5.0f;
 
-  // float kx_rob;
-  // float kv_rob;
-  // float ki_rob;
-  // float sigma_rob;
+static float eR_geo = 0.0f;
+static float ev1_geo = 0.0f;
+static float ev2_geo = 0.0f;
 
-  // struct vec ex_rob;
-  // struct vec ev_rob;
-  // struct vec ei_rob;
+// .kx_rob = 5.0,
+// .kv_rob = 5.0,
+// .ki_rob = 2.0,
+// .sigma_rob = 1.0,
 
-  float flap_freq;
-  float flap_amp;
-  float flap_phase;
+// struct vec ex_rob;
+// struct vec ev_rob;
+// struct vec ei_rob;
 
-  float l;
-  float follower_yaw;
+static float flap_freq = 0.0f;
+static float flap_amp = 0.0f;
+static float flap_phase = 0.0f;
 
-  struct vec rod;
-} controllerLee2_t;
+static float l = 0.0f;
+static float follower_yaw = 0.0f;
 
-static controllerLee2_t g_self2 = {
-  .node = 0, // node = parent is leader
-  .parent = 0,
-  .is_root = false,
-
-  .m = CF_MASS, // kg
-  .J = {16.571710e-6, 16.655602e-6, 29.261652e-6}, // kg m^2
-
-  .kx = 7.0,
-  .kv = 4.0,
-  .ki = 1.0,
-  .c1 = 3.6,
-  .sigma = 1.0,
-
-  .kR = 0.007,
-  .kW = 0.002,
-  .kI = 0.0005,
-  .c2 = 1.6, // Increased this to help with attitude convergence, might need tuning
-
-  .kR_geo = 5.0,
-  .kv_geo = 5.0,
-
-  // .kx_rob = 5.0,
-  // .kv_rob = 5.0,
-  // .ki_rob = 2.0,
-  // .sigma_rob = 1.0,
-
-  .flap_freq = 0.0f,
-  .flap_amp = 0.0f,
-  .flap_phase = 0.0f,
-
-  .l = 0,
-  .follower_yaw = 0.0f,
-};
+static struct vec rod;
 
 // static inline struct mat33 vouter(struct vec a, struct vec b) {
 //   struct mat33 out;
@@ -192,16 +162,14 @@ static inline struct vec vclampscl2(struct vec value, float min, float max) {
 }
 
 void p2pCB(P2PPacket* packet) {
-  controllerLee2_t* self = &g_self2;
-
   // Leader does not process any packets
-  if (self->node == self->parent) {
+  if (node == parent) {
     return;
   }
 
-  if (self->is_root) {
+  if (is_root) {
     if (veq(target_position_root, vzero())) {
-      target_position_root = self->x;
+      target_position_root = x;
     }
 
     setpoint_t setpoint = {0};
@@ -223,7 +191,7 @@ void p2pCB(P2PPacket* packet) {
   }
   
   // Only process packets from the parent
-  if (packet->port != self->parent) {
+  if (packet->port != parent) {
     return;
   }
   
@@ -245,22 +213,21 @@ void p2pCB(P2PPacket* packet) {
   memcpy(&v_l.z,       packet->data + 10*sizeof(float), sizeof(float));
 
   if (vmag(F_d_l_bar) < 1e-6f) {
-    self->ei = vzero();
+    ei = vzero();
     return;
   }
 
   // Where the magic happens
-  struct vec re = vsub(self->x, x_l);
-  struct vec re_dot = vsub(self->v, v_l);
-  float l = vmag(re);//0.3716;
-  self->l = l;
+  struct vec re = vsub(x, x_l);
+  struct vec re_dot = vsub(v, v_l);
+  l = vmag(re);//0.3716;
   
   // Desired values
   struct vec re_d;
   struct vec re_d_dot;
   struct vec re_d_ddot;
 
-  struct vec rod_normalized = vnormalize(self->rod);
+  struct vec rod_normalized = vnormalize(rod);
 
   // TODO: There is a weird dumb issue here
   // if (self->flap_freq == 0 && self->flap_amp == 0) {
@@ -288,7 +255,7 @@ void p2pCB(P2PPacket* packet) {
   //   re_d_ddot = vscl(l, qvrot(q_flap, re_d_ddot));
   // }
 
-  struct vec b1_d = mkvec(cosf(self->follower_yaw), sinf(self->follower_yaw), 0);
+  struct vec b1_d = mkvec(cosf(follower_yaw), sinf(follower_yaw), 0);
 
   // Geometric controller
   float beta = 2.7f;
@@ -302,13 +269,13 @@ void p2pCB(P2PPacket* packet) {
   struct vec t3_d = t3;
   struct vec t2_d = vcross(t3_d, t1_d);
 
-  self->eR_geo = l*atan2f(vdot(t1, t2_d), vdot(t1, t1_d));
-  self->ev1_geo = vdot(t2, re_dot) - vdot(t2_d, re_d_dot);
-  self->ev2_geo = vdot(t3, re_dot) - vdot(t3_d, re_d_dot);
-  float ev_norm = sqrtf(self->ev1_geo*self->ev1_geo + self->ev2_geo*self->ev2_geo);
+  eR_geo = l*atan2f(vdot(t1, t2_d), vdot(t1, t1_d));
+  ev1_geo = vdot(t2, re_dot) - vdot(t2_d, re_d_dot);
+  ev2_geo = vdot(t3, re_dot) - vdot(t3_d, re_d_dot);
+  float ev_norm = sqrtf(ev1_geo*ev1_geo + ev2_geo*ev2_geo);
   
-  float u_m1 = -self->kR_geo*self->eR_geo - self->kv_geo*self->ev1_geo - beta*(n-1)*self->ev1_geo*ev_norm + vdot(t2_d, re_d_ddot);
-  float u_m2 =                             -self->kv_geo*self->ev2_geo - beta*(n-1)*self->ev2_geo*ev_norm + vdot(t3_d, re_d_ddot);
+  float u_m1 = -kR_geo*eR_geo - kv_geo*ev1_geo - beta*(n-1)*ev1_geo*ev_norm + vdot(t2_d, re_d_ddot);
+  float u_m2 =                 -kv_geo*ev2_geo - beta*(n-1)*ev2_geo*ev_norm + vdot(t3_d, re_d_ddot);
 
   struct vec u = vadd(vscl(u_m1, t2), vscl(u_m2, t3));
 
@@ -332,11 +299,11 @@ void p2pCB(P2PPacket* packet) {
   // Disturbance observer
   disturbance_observer_step(&u, &re, &re_dot, &t1);
 
-  self->F_d_bar = vscl(self->m, vadd(vdiv(F_d_l_bar, m_l), u));
-  struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
+  F_d_bar = vscl(m, vadd(vdiv(F_d_l_bar, m_l), u));
+  struct vec F_d = vadd(F_d_bar, vscl(m*GRAVITY_MAGNITUDE, vbasis(2)));
 
   // Send F_d to the controller
-  float f = vdot(F_d, mvmul(self->R, vbasis(2)));
+  float f = vdot(F_d, mvmul(R, vbasis(2)));
   float thrust = f * UINT16_MAX / powerDistributionGetMaxThrust();
 
   struct vec b3_d = vnormalize(F_d);
@@ -358,10 +325,8 @@ void p2pCB(P2PPacket* packet) {
 }
 
 void appMain() {
-  controllerLee2_t* self = &g_self2;
-
   // Wait for the node and parent to be set
-  while (self->node == 0 || self->parent == 0) {
+  while (node == 0 || parent == 0) {
     vTaskDelay(M2T(100));
   }
 
@@ -382,27 +347,27 @@ void appMain() {
 
   while (1) {
     vTaskDelay(F2T(NETWORK_RATE));
-    if (self->node == 1 && vmag(self->F_d_bar) > 1e-6f) {
+    if (node == 1 && vmag(F_d_bar) > 1e-6f) {
       t += 1.0f/NETWORK_RATE;
     }
 
-    packet.port = self->node;
-    memcpy(packet.data,                    &t,               sizeof(float));
-    memcpy(packet.data + sizeof(float),    &self->m,         sizeof(float));
-    memcpy(packet.data + 2*sizeof(float),  &self->F_d_bar.x, sizeof(float));
-    memcpy(packet.data + 3*sizeof(float),  &self->F_d_bar.y, sizeof(float));
-    memcpy(packet.data + 4*sizeof(float),  &self->F_d_bar.z, sizeof(float));
-    memcpy(packet.data + 5*sizeof(float),  &self->x.x,       sizeof(float));
-    memcpy(packet.data + 6*sizeof(float),  &self->x.y,       sizeof(float));
-    memcpy(packet.data + 7*sizeof(float),  &self->x.z,       sizeof(float));
-    memcpy(packet.data + 8*sizeof(float),  &self->v.x,       sizeof(float));
-    memcpy(packet.data + 9*sizeof(float),  &self->v.y,       sizeof(float));
-    memcpy(packet.data + 10*sizeof(float), &self->v.z,       sizeof(float));
+    packet.port = node;
+    memcpy(packet.data,                    &t,         sizeof(float));
+    memcpy(packet.data + sizeof(float),    &m,         sizeof(float));
+    memcpy(packet.data + 2*sizeof(float),  &F_d_bar.x, sizeof(float));
+    memcpy(packet.data + 3*sizeof(float),  &F_d_bar.y, sizeof(float));
+    memcpy(packet.data + 4*sizeof(float),  &F_d_bar.z, sizeof(float));
+    memcpy(packet.data + 5*sizeof(float),  &x.x,       sizeof(float));
+    memcpy(packet.data + 6*sizeof(float),  &x.y,       sizeof(float));
+    memcpy(packet.data + 7*sizeof(float),  &x.z,       sizeof(float));
+    memcpy(packet.data + 8*sizeof(float),  &v.x,       sizeof(float));
+    memcpy(packet.data + 9*sizeof(float),  &v.y,       sizeof(float));
+    memcpy(packet.data + 10*sizeof(float), &v.z,       sizeof(float));
 
     radiolinkSendP2PPacketBroadcast(&packet);
 
     // If a follower is disabled...
-    if (self->node != self->parent && disable_props) {
+    if (node != parent && disable_props) {
       float accX = logGetFloat(logIdAccX);
       float accY = logGetFloat(logIdAccY);
       float accZ = logGetFloat(logIdAccZ);
@@ -474,47 +439,15 @@ static inline struct vec filter(struct vec* arr, int size) {
   return mkvec(x, y, z);
 }
 
-static inline void resetFilterBuffers(controllerLee2_t* self) {
+static inline void resetFilterBuffers() {
   for (int i = 0; i < FILTER_SIZE; i++) {
-    self->W_d_raw[i] = vzero();
-    self->W_d_dot_raw[i] = vzero();
+    W_d_raw[i] = vzero();
+    W_d_dot_raw[i] = vzero();
   }
 }
 
 void controllerOutOfTreeInit() {
-  controllerLee2_t* self = &g_self2;
-
-  self->f = 0;
-  self->M = vzero();
-  
-  self->ex = vzero();
-  self->ev = vzero();
-  self->ei = vzero();
-
-  self->eR = vzero();
-  self->eW = vzero();
-  self->eI = vzero();
-
-  self->R_d_prev = mcolumns(vrepeat(NAN), vrepeat(NAN), vrepeat(NAN));
-  self->W_d_prev = vrepeat(NAN);
-
-  self->W_d = vzero();
-  self->W_d_dot = vzero();
-
-  resetFilterBuffers(self);
-
-  self->F_d_bar = vzero();
-  self->x = vzero();
-  self->v = vzero();
-  self->R = meye();
-
-  self->eR_geo = 0;
-  self->ev1_geo = 0;
-  self->ev2_geo = 0;
-
-  // self->ex_rob = vzero();
-  // self->ev_rob = vzero();
-  // self->ei_rob = vzero();
+  resetFilterBuffers();
 }
 
 bool controllerOutOfTreeTest() {
@@ -522,8 +455,6 @@ bool controllerOutOfTreeTest() {
 }
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
-  controllerLee2_t* self = &g_self2;
-  
   if (!RATE_DO_EXECUTE(ATTITUDE_RATE, tick)) {
     return;
   }
@@ -531,10 +462,10 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   float dt = (float)(1.0f/ATTITUDE_RATE);
 
   // States
-  struct vec x = mkvec(state->position.x, state->position.y, state->position.z);
-  struct vec v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z);
+  x = mkvec(state->position.x, state->position.y, state->position.z);
+  v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z);
   struct quat q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
-  struct mat33 R = quat2rotmat(q);
+  R = quat2rotmat(q);
   struct vec W = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z));
 
   float desiredYaw = 0;
@@ -549,10 +480,6 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   if (setpoint->mode.yaw == modeAbs) {
     desiredYaw = radians(setpoint->attitude.yaw);
   }
-
-  self->x = x;
-  self->v = v;
-  self->R = R;
   
   // Calculate f and R_d
   struct mat33 R_d;
@@ -567,24 +494,24 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec a_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z);
     struct vec b1_d = mkvec(cosf(desiredYaw), sinf(desiredYaw), 0);
 
-    self->ex = vsub(x, x_d);
-    self->ev = vsub(v, v_d);
-    self->ei = vadd(self->ei, vscl(dt, vadd(self->ev, vscl(self->c1, self->ex))));
-    self->ei = vclampscl2(self->ei, -self->sigma, self->sigma);
+    ex = vsub(x, x_d);
+    ev = vsub(v, v_d);
+    ei = vadd(ei, vscl(dt, vadd(ev, vscl(c1, ex))));
+    ei = vclampscl2(ei, -sigma, sigma);
     
-    self->F_d_bar = vscl(self->m, vadd4(
-      vscl(-self->kx, self->ex),
-      vscl(-self->kv, self->ev),
-      vscl(-self->ki, self->ei),
+    F_d_bar = vscl(m, vadd4(
+      vscl(-kx, ex),
+      vscl(-kv, ev),
+      vscl(-ki, ei),
       a_d));
     // self->F_d_bar = veltmul(mkvec(0.1f, 0.1f, 1.0f), self->F_d_bar);
-    struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
-    self->f = vdot(F_d, mvmul(R, vbasis(2)));
+    struct vec F_d = vadd(F_d_bar, vscl(m*GRAVITY_MAGNITUDE, vbasis(2)));
+    f = vdot(F_d, mvmul(R, vbasis(2)));
     
-    if (self->f < 0.01f) {
-      self->ei = vzero();
-      self->eI = vzero();
-      resetFilterBuffers(self);
+    if (f < 0.01f) {
+      ei = vzero();
+      eI = vzero();
+      resetFilterBuffers();
     }
 
     struct vec b3_d = vnormalize(F_d);
@@ -600,13 +527,13 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec a_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z);
     struct vec b1_d = mkvec(cosf(desiredYaw), sinf(desiredYaw), 0);
 
-    self->ev = vsub(v, v_d);
-    self->ei = vadd(self->ei, vscl(dt, self->ev));
-    // self->ei = vclampscl2(self->ei, -self->sigma, self->sigma);
+    ev = vsub(v, v_d);
+    ei = vadd(ei, vscl(dt, ev));
+    // ei = vclampscl2(ei, -sigma, sigma);
     
-    self->F_d_bar = vscl(self->m, vadd3(
-      vscl(-self->kv, self->ev),
-      vscl(-4.0f, self->ei),
+    F_d_bar = vscl(m, vadd3(
+      vscl(-kv, ev),
+      vscl(-4.0f, ei),
       a_d));
 
     // Hover setpoint (velocity control in the x/y directions, position control in the z direction)
@@ -614,17 +541,17 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       float x3 = state->position.z;
       float x3_d = setpoint->position.z;
 
-      self->F_d_bar.z += -self->m*self->kx*(x3 - x3_d);
+      F_d_bar.z += -m*kx*(x3 - x3_d);
     }
 
     // self->F_d_bar = veltmul(mkvec(0.1f, 0.1f, 1.0f), self->F_d_bar);
-    struct vec F_d = vadd(self->F_d_bar, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
-    self->f = vdot(F_d, mvmul(R, vbasis(2)));
+    struct vec F_d = vadd(F_d_bar, vscl(m*GRAVITY_MAGNITUDE, vbasis(2)));
+    f = vdot(F_d, mvmul(R, vbasis(2)));
     
-    if (self->f < 0.01f) {
-      self->ei = vzero();
-      self->eI = vzero();
-      resetFilterBuffers(self);
+    if (f < 0.01f) {
+      ei = vzero();
+      eI = vzero();
+      resetFilterBuffers();
     }
 
     struct vec b3_d = vnormalize(F_d);
@@ -639,13 +566,13 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       control->torque[0] = 0;
       control->torque[1] = 0;
       control->torque[2] = 0;
-      self->ei = vzero();
-      self->eI = vzero();
-      resetFilterBuffers(self);
+      ei = vzero();
+      eI = vzero();
+      resetFilterBuffers();
       return;
     }
     const float max_thrust = powerDistributionGetMaxThrust(); // N
-    self->f = setpoint->thrust / UINT16_MAX * max_thrust;
+    f = setpoint->thrust / UINT16_MAX * max_thrust;
 
     if (setpoint->mode.quat == modeAbs) {
       R_d = quat2rotmat(mkquat(setpoint->attitudeQuaternion.x, setpoint->attitudeQuaternion.y, setpoint->attitudeQuaternion.z, setpoint->attitudeQuaternion.w));
@@ -656,61 +583,61 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
         desiredYaw)));
     }
 
-    if (self->node == self->parent) {
+    if (node == parent) {
       struct vec b3 = mcolumn(R, 2);
       struct vec b3_d = mcolumn(R_d, 2);
-      struct vec F_d = vscl(self->f/vdot(b3_d, b3), b3_d);
-      self->F_d_bar = vsub(F_d, vscl(self->m*GRAVITY_MAGNITUDE, vbasis(2)));
+      struct vec F_d = vscl(f/vdot(b3_d, b3), b3_d);
+      F_d_bar = vsub(F_d, vscl(m*GRAVITY_MAGNITUDE, vbasis(2)));
     }
   }
 
   // Calculate M
-  if (vneq(mcolumn(self->R_d_prev, 0), vrepeat(NAN)) && vneq(mcolumn(self->R_d_prev, 1), vrepeat(NAN)) && vneq(mcolumn(self->R_d_prev, 2), vrepeat(NAN))) {
+  if (vneq(mcolumn(R_d_prev, 0), vrepeat(NAN)) && vneq(mcolumn(R_d_prev, 1), vrepeat(NAN)) && vneq(mcolumn(R_d_prev, 2), vrepeat(NAN))) {
     if (enable_filters) {
       // Update W_d_raw buffer
       for (int i = 0; i < FILTER_SIZE - 1; i++) {
-        self->W_d_raw[i] = self->W_d_raw[i + 1];
+        W_d_raw[i] = W_d_raw[i + 1];
       }
-      self->W_d_raw[FILTER_SIZE - 1] = vdiv(mvee(mlog(mmul(mtranspose(self->R_d_prev), R_d))), dt);
-      self->W_d = filter(self->W_d_raw, FILTER_SIZE);
+      W_d_raw[FILTER_SIZE - 1] = vdiv(mvee(mlog(mmul(mtranspose(R_d_prev), R_d))), dt);
+      W_d = filter(W_d_raw, FILTER_SIZE);
     } else {
-      self->W_d = vzero();
+      W_d = vzero();
     }
 
-    if (vneq(self->W_d_prev, vrepeat(NAN))) {
+    if (vneq(W_d_prev, vrepeat(NAN))) {
       if (enable_filters) {
         // Update W_d_dot_raw buffer
         for (int i = 0; i < FILTER_SIZE - 1; i++) {
-          self->W_d_dot_raw[i] = self->W_d_dot_raw[i + 1];
+          W_d_dot_raw[i] = W_d_dot_raw[i + 1];
         }
-        self->W_d_dot_raw[FILTER_SIZE - 1] = vdiv(vsub(self->W_d, self->W_d_prev), dt);
-        self->W_d_dot = filter(self->W_d_dot_raw, FILTER_SIZE);
+        W_d_dot_raw[FILTER_SIZE - 1] = vdiv(vsub(W_d, W_d_prev), dt);
+        W_d_dot = filter(W_d_dot_raw, FILTER_SIZE);
       } else {
-        self->W_d_dot = vzero();
+        W_d_dot = vzero();
       }
 
-      self->eR = vscl(0.5f, mvee(msub(
+      eR = vscl(0.5f, mvee(msub(
         mmul(mtranspose(R_d), R),
         mmul(mtranspose(R), R_d))));
-      self->eW = vsub(W, mvmul(mtranspose(R), mvmul(R_d, self->W_d)));
-      self->eI = vadd(self->eI, vscl(dt, vadd(self->eW, vscl(self->c2, self->eR))));
+      eW = vsub(W, mvmul(mtranspose(R), mvmul(R_d, W_d)));
+      eI = vadd(eI, vscl(dt, vadd(eW, vscl(c2, eR))));
 
-      self->M = vadd(vadd4(
-        vneg(vscl(self->kR, self->eR)),
-        vneg(vscl(self->kW, self->eW)),
-        vneg(vscl(self->kI, self->eI)),
-        vcross(mvmul(mtranspose(R), mvmul(R_d, self->W_d)), veltmul(self->J, mvmul(mtranspose(R), mvmul(R_d, self->W_d))))),
-        veltmul(self->J, mvmul(mtranspose(R), mvmul(R_d, self->W_d_dot))));
+      M = vadd(vadd4(
+        vneg(vscl(kR, eR)),
+        vneg(vscl(kW, eW)),
+        vneg(vscl(kI, eI)),
+        vcross(mvmul(mtranspose(R), mvmul(R_d, W_d)), veltmul(J, mvmul(mtranspose(R), mvmul(R_d, W_d))))),
+        veltmul(J, mvmul(mtranspose(R), mvmul(R_d, W_d_dot))));
     }
-    self->W_d_prev = self->W_d;
+    W_d_prev = W_d;
   }
-  self->R_d_prev = R_d;
+  R_d_prev = R_d;
 
   control->controlMode = controlModeForceTorque;
-  control->thrustSi = self->f;
-  control->torque[0] = self->M.x;
-  control->torque[1] = self->M.y;
-  control->torque[2] = self->M.z;
+  control->thrustSi = f;
+  control->torque[0] = M.x;
+  control->torque[1] = M.y;
+  control->torque[2] = M.z;
   if (disable_props) {
     control->thrustSi = 0.0f;
     control->torque[0] = 0.0f;
@@ -721,95 +648,95 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 
 PARAM_GROUP_START(crazysar)
 
-PARAM_ADD(PARAM_UINT8, node, &g_self2.node)
-PARAM_ADD(PARAM_UINT8, parent, &g_self2.parent)
-PARAM_ADD(PARAM_UINT8, is_root, &g_self2.is_root)
+PARAM_ADD(PARAM_UINT8, node, &node)
+PARAM_ADD(PARAM_UINT8, parent, &parent)
+PARAM_ADD(PARAM_UINT8, is_root, &is_root)
 
-PARAM_ADD(PARAM_FLOAT, m, &g_self2.m)
+PARAM_ADD(PARAM_FLOAT, m, &m)
 
-PARAM_ADD(PARAM_FLOAT, kx, &g_self2.kx)
-PARAM_ADD(PARAM_FLOAT, kv, &g_self2.kv)
-PARAM_ADD(PARAM_FLOAT, ki, &g_self2.ki)
+PARAM_ADD(PARAM_FLOAT, kx, &kx)
+PARAM_ADD(PARAM_FLOAT, kv, &kv)
+PARAM_ADD(PARAM_FLOAT, ki, &ki)
 
-PARAM_ADD(PARAM_FLOAT, kR, &g_self2.kR)
-PARAM_ADD(PARAM_FLOAT, kW, &g_self2.kW)
-PARAM_ADD(PARAM_FLOAT, kI, &g_self2.kI)
+PARAM_ADD(PARAM_FLOAT, kR, &kR)
+PARAM_ADD(PARAM_FLOAT, kW, &kW)
+PARAM_ADD(PARAM_FLOAT, kI, &kI)
 
 PARAM_ADD(PARAM_UINT8, disable_props, &disable_props)
 
-PARAM_ADD(PARAM_FLOAT, kR_geo, &g_self2.kR_geo)
-PARAM_ADD(PARAM_FLOAT, kv_geo, &g_self2.kv_geo)
+PARAM_ADD(PARAM_FLOAT, kR_geo, &kR_geo)
+PARAM_ADD(PARAM_FLOAT, kv_geo, &kv_geo)
 
 // PARAM_ADD(PARAM_FLOAT, kx_rob, &g_self2.kx_rob)
 // PARAM_ADD(PARAM_FLOAT, kv_rob, &g_self2.kv_rob)
 // PARAM_ADD(PARAM_FLOAT, ki_rob, &g_self2.ki_rob)
 
-PARAM_ADD(PARAM_FLOAT, follower_yaw, &g_self2.follower_yaw)
+PARAM_ADD(PARAM_FLOAT, follower_yaw, &follower_yaw)
 
-PARAM_ADD(PARAM_FLOAT, rod_x, &g_self2.rod.x)
-PARAM_ADD(PARAM_FLOAT, rod_y, &g_self2.rod.y)
-PARAM_ADD(PARAM_FLOAT, rod_z, &g_self2.rod.z)
+PARAM_ADD(PARAM_FLOAT, rod_x, &rod.x)
+PARAM_ADD(PARAM_FLOAT, rod_y, &rod.y)
+PARAM_ADD(PARAM_FLOAT, rod_z, &rod.z)
 
-PARAM_ADD(PARAM_FLOAT, flap_freq, &g_self2.flap_freq)
-PARAM_ADD(PARAM_FLOAT, flap_amp, &g_self2.flap_amp)
-PARAM_ADD(PARAM_FLOAT, flap_phase, &g_self2.flap_phase)
+PARAM_ADD(PARAM_FLOAT, flap_freq, &flap_freq)
+PARAM_ADD(PARAM_FLOAT, flap_amp, &flap_amp)
+PARAM_ADD(PARAM_FLOAT, flap_phase, &flap_phase)
 
 PARAM_GROUP_STOP(crazysar)
 
 LOG_GROUP_START(crazysar)
 
 // Wrench
-LOG_ADD(LOG_FLOAT, f, &g_self2.f)
-LOG_ADD(LOG_FLOAT, M1, &g_self2.M.x)
-LOG_ADD(LOG_FLOAT, M2, &g_self2.M.y)
-LOG_ADD(LOG_FLOAT, M3, &g_self2.M.z)
+LOG_ADD(LOG_FLOAT, f, &f)
+LOG_ADD(LOG_FLOAT, M1, &M.x)
+LOG_ADD(LOG_FLOAT, M2, &M.y)
+LOG_ADD(LOG_FLOAT, M3, &M.z)
 
 // Errors
-LOG_ADD(LOG_FLOAT, ex1, &g_self2.ex.x)
-LOG_ADD(LOG_FLOAT, ex2, &g_self2.ex.y)
-LOG_ADD(LOG_FLOAT, ex3, &g_self2.ex.z)
+LOG_ADD(LOG_FLOAT, ex1, &ex.x)
+LOG_ADD(LOG_FLOAT, ex2, &ex.y)
+LOG_ADD(LOG_FLOAT, ex3, &ex.z)
 
-LOG_ADD(LOG_FLOAT, ev1, &g_self2.ev.x)
-LOG_ADD(LOG_FLOAT, ev2, &g_self2.ev.y)
-LOG_ADD(LOG_FLOAT, ev3, &g_self2.ev.z)
+LOG_ADD(LOG_FLOAT, ev1, &ev.x)
+LOG_ADD(LOG_FLOAT, ev2, &ev.y)
+LOG_ADD(LOG_FLOAT, ev3, &ev.z)
 
-LOG_ADD(LOG_FLOAT, ei1, &g_self2.ei.x)
-LOG_ADD(LOG_FLOAT, ei2, &g_self2.ei.y)
-LOG_ADD(LOG_FLOAT, ei3, &g_self2.ei.z)
+LOG_ADD(LOG_FLOAT, ei1, &ei.x)
+LOG_ADD(LOG_FLOAT, ei2, &ei.y)
+LOG_ADD(LOG_FLOAT, ei3, &ei.z)
 
-LOG_ADD(LOG_FLOAT, eR1, &g_self2.eR.x)
-LOG_ADD(LOG_FLOAT, eR2, &g_self2.eR.y)
-LOG_ADD(LOG_FLOAT, eR3, &g_self2.eR.z)
+LOG_ADD(LOG_FLOAT, eR1, &eR.x)
+LOG_ADD(LOG_FLOAT, eR2, &eR.y)
+LOG_ADD(LOG_FLOAT, eR3, &eR.z)
 
-LOG_ADD(LOG_FLOAT, eW1, &g_self2.eW.x)
-LOG_ADD(LOG_FLOAT, eW2, &g_self2.eW.y)
-LOG_ADD(LOG_FLOAT, eW3, &g_self2.eW.z)
+LOG_ADD(LOG_FLOAT, eW1, &eW.x)
+LOG_ADD(LOG_FLOAT, eW2, &eW.y)
+LOG_ADD(LOG_FLOAT, eW3, &eW.z)
 
-LOG_ADD(LOG_FLOAT, eI1, &g_self2.eI.x)
-LOG_ADD(LOG_FLOAT, eI2, &g_self2.eI.y)
-LOG_ADD(LOG_FLOAT, eI3, &g_self2.eI.z)
+LOG_ADD(LOG_FLOAT, eI1, &eI.x)
+LOG_ADD(LOG_FLOAT, eI2, &eI.y)
+LOG_ADD(LOG_FLOAT, eI3, &eI.z)
 
-LOG_ADD(LOG_FLOAT, W_d1, &g_self2.W_d.x)
-LOG_ADD(LOG_FLOAT, W_d2, &g_self2.W_d.y)
-LOG_ADD(LOG_FLOAT, W_d3, &g_self2.W_d.z)
+LOG_ADD(LOG_FLOAT, W_d1, &W_d.x)
+LOG_ADD(LOG_FLOAT, W_d2, &W_d.y)
+LOG_ADD(LOG_FLOAT, W_d3, &W_d.z)
 
-LOG_ADD(LOG_FLOAT, W_d_dot1, &g_self2.W_d_dot.x)
-LOG_ADD(LOG_FLOAT, W_d_dot2, &g_self2.W_d_dot.y)
-LOG_ADD(LOG_FLOAT, W_d_dot3, &g_self2.W_d_dot.z)
+LOG_ADD(LOG_FLOAT, W_d_dot1, &W_d_dot.x)
+LOG_ADD(LOG_FLOAT, W_d_dot2, &W_d_dot.y)
+LOG_ADD(LOG_FLOAT, W_d_dot3, &W_d_dot.z)
 
-LOG_ADD(LOG_FLOAT, F_d1, &g_self2.F_d_bar.x)
-LOG_ADD(LOG_FLOAT, F_d2, &g_self2.F_d_bar.y)
-LOG_ADD(LOG_FLOAT, F_d3, &g_self2.F_d_bar.z)
+LOG_ADD(LOG_FLOAT, F_d1, &F_d_bar.x)
+LOG_ADD(LOG_FLOAT, F_d2, &F_d_bar.y)
+LOG_ADD(LOG_FLOAT, F_d3, &F_d_bar.z)
 
-LOG_ADD(LOG_FLOAT, eR_geo, &g_self2.eR_geo)
-LOG_ADD(LOG_FLOAT, ev1_geo, &g_self2.ev1_geo)
-LOG_ADD(LOG_FLOAT, ev2_geo, &g_self2.ev2_geo)
+LOG_ADD(LOG_FLOAT, eR_geo, &eR_geo)
+LOG_ADD(LOG_FLOAT, ev1_geo, &ev1_geo)
+LOG_ADD(LOG_FLOAT, ev2_geo, &ev2_geo)
 
 // LOG_ADD(LOG_FLOAT, ex_rob, &g_self2.ex_rob)
 // LOG_ADD(LOG_FLOAT, ev_rob, &g_self2.ev_rob)
 // LOG_ADD(LOG_FLOAT, ei_rob, &g_self2.ei_rob)
 
 LOG_ADD(LOG_FLOAT, t, &t)
-LOG_ADD(LOG_FLOAT, l, &g_self2.l)
+LOG_ADD(LOG_FLOAT, l, &l)
 
 LOG_GROUP_STOP(crazysar)
