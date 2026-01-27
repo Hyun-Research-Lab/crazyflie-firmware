@@ -162,12 +162,24 @@ static inline struct vec vclampscl2(struct vec value, float min, float max) {
 }
 
 void p2pCB(P2PPacket* packet) {
+  // Copy time from node 1 (TODO)
+  if (packet->port == 1) {
+    memcpy(&t, packet->data, sizeof(float));
+  }
+
   // Leader does not process any packets
   if (node == parent) {
+    eR_geo = 0.0f;
+    ev1_geo = 0.0f;
+    ev2_geo = 0.0f;
     return;
   }
 
   if (is_root) {
+    eR_geo = 0.0f;
+    ev1_geo = 0.0f;
+    ev2_geo = 0.0f;
+
     if (veq(target_position_root, vzero())) {
       target_position_root = x;
     }
@@ -185,11 +197,6 @@ void p2pCB(P2PPacket* packet) {
     return;
   }
 
-  // Copy time from node 1 (TODO)
-  if (packet->port == 1) {
-    memcpy(&t, packet->data, sizeof(float));
-  }
-  
   // Only process packets from the parent
   if (packet->port != parent) {
     return;
@@ -738,5 +745,9 @@ LOG_ADD(LOG_FLOAT, ev2_geo, &ev2_geo)
 
 LOG_ADD(LOG_FLOAT, t, &t)
 LOG_ADD(LOG_FLOAT, l, &l)
+
+LOG_ADD(LOG_FLOAT, rod1, &rod.x)
+LOG_ADD(LOG_FLOAT, rod2, &rod.y)
+LOG_ADD(LOG_FLOAT, rod3, &rod.z)
 
 LOG_GROUP_STOP(crazysar)
