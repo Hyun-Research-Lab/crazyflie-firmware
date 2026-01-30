@@ -51,6 +51,8 @@
 #include "log.h"
 #include "main.h"
 
+// #define PID_ROBUSTNESS
+
 static uint8_t disable_props = 0;
 static uint8_t enable_filters = 0;
 
@@ -122,14 +124,16 @@ static float eR_geo = 0.0f;
 static float ev1_geo = 0.0f;
 static float ev2_geo = 0.0f;
 
-// .kx_rob = 5.0,
-// .kv_rob = 5.0,
-// .ki_rob = 2.0,
-// .sigma_rob = 1.0,
+#ifdef PID_ROBUSTNESS
+static float kx_rob = 5.0f;
+static float kv_rob = 5.0f;
+static float ki_rob = 2.0f;
+static float sigma_rob = 1.0f;
 
-// struct vec ex_rob;
-// struct vec ev_rob;
-// struct vec ei_rob;
+static struct vec ex_rob = { 0, 0, 0 };
+static struct vec ev_rob = { 0, 0, 0 };
+static struct vec ei_rob = { 0, 0, 0 };
+#endif
 
 static float flap_freq = 0.0f;
 static float flap_amp = 0.0f;
@@ -138,21 +142,23 @@ static float flap_phase = 0.0f;
 static float l = 0.0f;
 static float follower_yaw = 0.0f;
 
-static struct vec rod;
+static struct vec rod = { 0, 1, 0 }; // default value
 
-// static inline struct mat33 vouter(struct vec a, struct vec b) {
-//   struct mat33 out;
-//   out.m[0][0] = a.x * b.x;
-//   out.m[0][1] = a.x * b.y;
-//   out.m[0][2] = a.x * b.z;
-//   out.m[1][0] = a.y * b.x;
-//   out.m[1][1] = a.y * b.y;
-//   out.m[1][2] = a.y * b.z;
-//   out.m[2][0] = a.z * b.x;
-//   out.m[2][1] = a.z * b.y;
-//   out.m[2][2] = a.z * b.z;
-//   return out;
-// }
+#ifdef PID_ROBUSTNESS
+static inline struct mat33 vouter(struct vec a, struct vec b) {
+  struct mat33 out;
+  out.m[0][0] = a.x * b.x;
+  out.m[0][1] = a.x * b.y;
+  out.m[0][2] = a.x * b.z;
+  out.m[1][0] = a.y * b.x;
+  out.m[1][1] = a.y * b.y;
+  out.m[1][2] = a.y * b.z;
+  out.m[2][0] = a.z * b.x;
+  out.m[2][1] = a.z * b.y;
+  out.m[2][2] = a.z * b.z;
+  return out;
+}
+#endif
 
 static inline struct vec vclampscl2(struct vec value, float min, float max) {
   return mkvec(
@@ -286,25 +292,28 @@ void p2pCB(P2PPacket* packet) {
 
   struct vec u = vadd(vscl(u_m1, t2), vscl(u_m2, t3));
 
-  // Add a robustness term
-  // self->ex_rob = vsub(re, re_d);
-  // self->ev_rob = vsub(re_dot, re_d_dot);
-  // self->ei_rob = vadd(self->ei_rob, vdiv(self->ex_rob, NETWORK_RATE));
-  // self->ei_rob = vclampscl2(self->ei_rob, -self->sigma_rob, self->sigma_rob);
+#ifdef PID_ROBUSTNESS
+  ex_rob = vsub(re, re_d);
+  ev_rob = vsub(re_dot, re_d_dot);
+  ei_rob = vadd(ei_rob, vdiv(ex_rob, NETWORK_RATE));
+  ei_rob = vclampscl2(ei_rob, -sigma_rob, sigma_rob);
 
-  // struct mat33 P_onto_re = mscl(1.0f/vdot(re, re), vouter(re, re));
-  // struct vec u = vadd3(
-  //   vscl(u_m1, t2),
-  //   vscl(u_m2, t3),
-  //   vadd(mvmul(P_onto_re, vadd3(
-  //       vscl(-self->kx_rob, self->ex_rob),
-  //       vscl(-self->kv_rob, self->ev_rob),
-  //       re_d_ddot)),
-  //     vscl(-self->ki_rob, self->ei_rob)));
-  // // vscl(-self->kx_rob*self->ex_rob - self->kv_rob*self->ev_rob - self->ki_rob*self->ei_rob + vdot(re_d_ddot, t1), t1));
+  struct mat33 P_onto_re = mscl(1.0f/vdot(re, re), vouter(re, re));
+  u = vadd3(
+    u,
+    mvmul(P_onto_re, vadd3(
+      vscl(-kx_rob, ex_rob),
+      vscl(-kv_rob, ev_rob),
+      re_d_ddot
+    )),
+    vscl(-ki_rob, ei_rob)
+  );
+  // vscl(-self->kx_rob*self->ex_rob - self->kv_rob*self->ev_rob - self->ki_rob*self->ei_rob + vdot(re_d_ddot, t1), t1));
 
+#else
   // Disturbance observer
   disturbance_observer_step(&u, &re, &re_dot, &t1);
+#endif
 
   F_d_bar = vscl(m, vadd(vdiv(F_d_l_bar, m_l), u));
   struct vec F_d = vadd(F_d_bar, vscl(m*GRAVITY_MAGNITUDE, vbasis(2)));
@@ -739,9 +748,11 @@ LOG_ADD(LOG_FLOAT, eR_geo, &eR_geo)
 LOG_ADD(LOG_FLOAT, ev1_geo, &ev1_geo)
 LOG_ADD(LOG_FLOAT, ev2_geo, &ev2_geo)
 
-// LOG_ADD(LOG_FLOAT, ex_rob, &g_self2.ex_rob)
-// LOG_ADD(LOG_FLOAT, ev_rob, &g_self2.ev_rob)
-// LOG_ADD(LOG_FLOAT, ei_rob, &g_self2.ei_rob)
+#ifdef PID_ROBUSTNESS
+LOG_ADD(LOG_FLOAT, ex_rob, &ex_rob)
+LOG_ADD(LOG_FLOAT, ev_rob, &ev_rob)
+LOG_ADD(LOG_FLOAT, ei_rob, &ei_rob)
+#endif
 
 LOG_ADD(LOG_FLOAT, t, &t)
 LOG_ADD(LOG_FLOAT, l, &l)
