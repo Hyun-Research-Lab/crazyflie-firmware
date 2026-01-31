@@ -142,7 +142,10 @@ static float flap_phase = 0.0f;
 static float l = 0.0f;
 static float follower_yaw = 0.0f;
 
-static struct vec rod = { 0, 1, 0 }; // default value
+static int8_t rod[3] = { 0, 1, 0 }; // default value
+static struct vec re = { 0, 0, 0 };
+
+static uint32_t config_params = 0;
 
 #ifdef PID_ROBUSTNESS
 static inline struct mat33 vouter(struct vec a, struct vec b) {
@@ -231,7 +234,7 @@ void p2pCB(P2PPacket* packet) {
   }
 
   // Where the magic happens
-  struct vec re = vsub(x, x_l);
+  re = vsub(x, x_l);
   struct vec re_dot = vsub(v, v_l);
   l = vmag(re);//0.3716;
   
@@ -240,7 +243,7 @@ void p2pCB(P2PPacket* packet) {
   struct vec re_d_dot;
   struct vec re_d_ddot;
 
-  struct vec rod_normalized = vnormalize(rod);
+  struct vec rod_normalized = vnormalize(mkvec((float)rod[0], (float)rod[1], (float)rod[2]));
 
   // TODO: There is a weird dumb issue here
   // if (self->flap_freq == 0 && self->flap_amp == 0) {
@@ -662,6 +665,15 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   }
 }
 
+void decodeConfigParams() {
+  node = config_params & 0x0F;
+  parent = (config_params >> 4) & 0x0F;
+
+  memcpy(rod, (int8_t*)&config_params + 1, 3*sizeof(int8_t));
+
+  // DEBUG_PRINT("Config params decoded: node=%d, parent=%d, rod=(%d, %d, %d)\n", node, parent, rod[0], rod[1], rod[2]);
+}
+
 PARAM_GROUP_START(crazysar)
 
 PARAM_ADD(PARAM_UINT8, node, &node)
@@ -683,19 +695,19 @@ PARAM_ADD(PARAM_UINT8, disable_props, &disable_props)
 PARAM_ADD(PARAM_FLOAT, kR_geo, &kR_geo)
 PARAM_ADD(PARAM_FLOAT, kv_geo, &kv_geo)
 
-// PARAM_ADD(PARAM_FLOAT, kx_rob, &g_self2.kx_rob)
-// PARAM_ADD(PARAM_FLOAT, kv_rob, &g_self2.kv_rob)
-// PARAM_ADD(PARAM_FLOAT, ki_rob, &g_self2.ki_rob)
+#ifdef PID_ROBUSTNESS
+PARAM_ADD(PARAM_FLOAT, kx_rob, &kx_rob)
+PARAM_ADD(PARAM_FLOAT, kv_rob, &kv_rob)
+PARAM_ADD(PARAM_FLOAT, ki_rob, &ki_rob)
+#endif
 
 PARAM_ADD(PARAM_FLOAT, follower_yaw, &follower_yaw)
-
-PARAM_ADD(PARAM_FLOAT, rod_x, &rod.x)
-PARAM_ADD(PARAM_FLOAT, rod_y, &rod.y)
-PARAM_ADD(PARAM_FLOAT, rod_z, &rod.z)
 
 PARAM_ADD(PARAM_FLOAT, flap_freq, &flap_freq)
 PARAM_ADD(PARAM_FLOAT, flap_amp, &flap_amp)
 PARAM_ADD(PARAM_FLOAT, flap_phase, &flap_phase)
+
+PARAM_ADD_WITH_CALLBACK(PARAM_UINT32, config_params, &config_params, &decodeConfigParams)
 
 PARAM_GROUP_STOP(crazysar)
 
@@ -757,8 +769,12 @@ LOG_ADD(LOG_FLOAT, ei_rob, &ei_rob)
 LOG_ADD(LOG_FLOAT, t, &t)
 LOG_ADD(LOG_FLOAT, l, &l)
 
-LOG_ADD(LOG_FLOAT, rod1, &rod.x)
-LOG_ADD(LOG_FLOAT, rod2, &rod.y)
-LOG_ADD(LOG_FLOAT, rod3, &rod.z)
+LOG_ADD(LOG_INT8, rod1, &rod[0])
+LOG_ADD(LOG_INT8, rod2, &rod[1])
+LOG_ADD(LOG_INT8, rod3, &rod[2])
+
+LOG_ADD(LOG_FLOAT, re1, &re.x)
+LOG_ADD(LOG_FLOAT, re2, &re.y)
+LOG_ADD(LOG_FLOAT, re3, &re.z)
 
 LOG_GROUP_STOP(crazysar)
