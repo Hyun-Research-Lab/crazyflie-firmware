@@ -295,28 +295,30 @@ void p2pCB(P2PPacket* packet) {
 
   struct vec u = vadd(vscl(u_m1, t2), vscl(u_m2, t3));
 
+  if (!disable_props) {
 #ifdef PID_ROBUSTNESS
-  ex_rob = vsub(re, re_d);
-  ev_rob = vsub(re_dot, re_d_dot);
-  ei_rob = vadd(ei_rob, vdiv(ex_rob, NETWORK_RATE));
-  ei_rob = vclampscl2(ei_rob, -sigma_rob, sigma_rob);
+    ex_rob = vsub(re, re_d);
+    ev_rob = vsub(re_dot, re_d_dot);
+    ei_rob = vadd(ei_rob, vdiv(ex_rob, NETWORK_RATE));
+    ei_rob = vclampscl2(ei_rob, -sigma_rob, sigma_rob);
 
-  struct mat33 P_onto_re = mscl(1.0f/vdot(re, re), vouter(re, re));
-  u = vadd3(
-    u,
-    mvmul(P_onto_re, vadd3(
-      vscl(-kx_rob, ex_rob),
-      vscl(-kv_rob, ev_rob),
-      re_d_ddot
-    )),
-    vscl(-ki_rob, ei_rob)
-  );
-  // vscl(-self->kx_rob*self->ex_rob - self->kv_rob*self->ev_rob - self->ki_rob*self->ei_rob + vdot(re_d_ddot, t1), t1));
+    struct mat33 P_onto_re = mscl(1.0f/vdot(re, re), vouter(re, re));
+    u = vadd3(
+      u,
+      mvmul(P_onto_re, vadd3(
+        vscl(-kx_rob, ex_rob),
+        vscl(-kv_rob, ev_rob),
+        re_d_ddot
+      )),
+      vscl(-ki_rob, ei_rob)
+    );
+    // vscl(-self->kx_rob*self->ex_rob - self->kv_rob*self->ev_rob - self->ki_rob*self->ei_rob + vdot(re_d_ddot, t1), t1));
 
 #else
-  // Disturbance observer
-  disturbance_observer_step(&u, &re, &re_dot, &t1);
+    // Disturbance observer
+    disturbance_observer_step(&u, &re, &re_dot, &t1);
 #endif
+  }
 
   F_d_bar = vscl(m, vadd(vdiv(F_d_l_bar, m_l), u));
   struct vec F_d = vadd(F_d_bar, vscl(m*GRAVITY_MAGNITUDE, vbasis(2)));
