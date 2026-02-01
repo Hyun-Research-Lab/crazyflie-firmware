@@ -71,6 +71,17 @@ bool controllerOutOfTreeTest() {
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
   // Implement your controller here...
 
+  // DEBUG_PRINT("%f, %f, %f, %f\n", (double)setpoint->attitude.roll, (double)setpoint->attitude.pitch, (double)setpoint->attitudeRate.yaw, (double)setpoint->thrust);
+
   // Call the PID controller instead in this example to make it possible to fly
   controllerPid(control, setpoint, sensors, state, tick);
+
+  // float pitch_servo_angle = setpoint->attitude.pitch / 30.0f * 45.0f; // [-45, 45] degrees
+  // float yaw_servo_angle = setpoint->attitudeRate.yaw / 200.0f * 45.0f; // [-45, 45] degrees
+
+  // control->controlMode = controlModeLegacy;
+  // control->roll = (int16_t)(setpoint->attitude.roll / 30.0f * INT16_MAX);
+  // control->pitch = (int16_t)(setpoint->attitude.pitch / 30.0f * INT16_MAX);
+  // control->yaw = (int16_t)(setpoint->attitudeRate.yaw / 200.0f * INT16_MAX);
+  // control->thrust = setpoint->thrust;
 }
