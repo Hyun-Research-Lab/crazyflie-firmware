@@ -147,6 +147,8 @@ static struct vec re = { 0, 0, 0 };
 
 static uint32_t config_params = 0;
 
+static paramVarId_t paramIdLedBitmask;
+
 #ifdef PID_ROBUSTNESS
 static inline struct mat33 vouter(struct vec a, struct vec b) {
   struct mat33 out;
@@ -168,6 +170,16 @@ static inline struct vec vclampscl2(struct vec value, float min, float max) {
     clamp(value.x, min, max),
     clamp(value.y, min, max),
     clamp(value.z, min, max));
+}
+
+void setLedBitmask() {
+  if (node == parent) {
+    paramSetInt(paramIdLedBitmask, LED_LEADER);
+  } else if (is_root) {
+    paramSetInt(paramIdLedBitmask, LED_ROOT);
+  } else {
+    paramSetInt(paramIdLedBitmask, LED_FOLLOWER);
+  }
 }
 
 void p2pCB(P2PPacket* packet) {
@@ -237,7 +249,16 @@ void p2pCB(P2PPacket* packet) {
   re = vsub(x, x_l);
   struct vec re_dot = vsub(v, v_l);
   l = vmag(re);//0.3716;
-  
+
+  // // If the rod is broken, become root
+  // if ((l < 0.25f || l > 0.55f) && !disable_props) {
+  //   is_root = true;
+  //   setLedBitmask();
+
+  //   ei = vzero();
+  //   return;
+  // }
+
   // Desired values
   struct vec re_d;
   struct vec re_d_dot;
@@ -346,6 +367,8 @@ void p2pCB(P2PPacket* packet) {
 }
 
 void appMain() {
+  paramIdLedBitmask = paramGetVarId("led", "bitmask");
+  
   // Wait for the node and parent to be set
   while (node == 0 || parent == 0) {
     vTaskDelay(M2T(100));
@@ -673,6 +696,8 @@ void decodeConfigParams() {
 
   memcpy(rod, (int8_t*)&config_params + 1, 3*sizeof(int8_t));
 
+  setLedBitmask();
+
   // DEBUG_PRINT("Config params decoded: node=%d, parent=%d, rod=(%d, %d, %d)\n", node, parent, rod[0], rod[1], rod[2]);
 }
 
@@ -680,7 +705,7 @@ PARAM_GROUP_START(crazysar)
 
 PARAM_ADD(PARAM_UINT8, node, &node)
 PARAM_ADD(PARAM_UINT8, parent, &parent)
-PARAM_ADD(PARAM_UINT8, is_root, &is_root)
+PARAM_ADD_WITH_CALLBACK(PARAM_UINT8, is_root, &is_root, &setLedBitmask)
 
 PARAM_ADD(PARAM_FLOAT, m, &m)
 
