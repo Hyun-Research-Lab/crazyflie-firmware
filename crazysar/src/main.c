@@ -149,6 +149,8 @@ static uint32_t config_params = 0;
 
 static paramVarId_t paramIdLedBitmask;
 
+static uint32_t counter = 0;
+
 #ifdef PID_ROBUSTNESS
 static inline struct mat33 vouter(struct vec a, struct vec b) {
   struct mat33 out;
@@ -222,6 +224,9 @@ void p2pCB(P2PPacket* packet) {
   if (packet->port != parent) {
     return;
   }
+
+  // Reset the counter every time we get a packet from the parent
+  counter = 0;
   
   float m_l;
   struct vec F_d_l_bar;
@@ -419,6 +424,16 @@ void appMain() {
 
       if (acc_norm - acc_norm_init > 0.05f) {
         disable_props = 0;
+      }
+    }
+
+    // If it has been a certain number of cycles since the last command from the parent, become root
+    if (node == parent || is_root) {
+      counter = 0;
+    } else {
+      counter++;
+      if (counter > 100 && t > 1.0f) {
+        is_root = true;
       }
     }
   }
@@ -803,5 +818,7 @@ LOG_ADD(LOG_INT8, rod3, &rod[2])
 LOG_ADD(LOG_FLOAT, re1, &re.x)
 LOG_ADD(LOG_FLOAT, re2, &re.y)
 LOG_ADD(LOG_FLOAT, re3, &re.z)
+
+LOG_ADD(LOG_UINT32, counter, &counter)
 
 LOG_GROUP_STOP(crazysar)
