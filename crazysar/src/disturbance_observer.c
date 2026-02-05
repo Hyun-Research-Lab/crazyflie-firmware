@@ -59,7 +59,7 @@ void disturbance_observer_step(struct vec* u, const struct vec* re, const struct
 		aug_state_est.pData[7],
 		aug_state_est.pData[8]
 	);
-	disturbance_est = vsub(disturbance_est, vscl(0.5f / NETWORK_RATE * vdot(disturbance_est, *b1), *b1)); // Reduce the component along b1 over time
+	disturbance_est = vsub(disturbance_est, vscl(0.5f / CRAZYSAR_NETWORK_RATE * vdot(disturbance_est, *b1), *b1)); // Reduce the component along b1 over time
 	aug_state_est.pData[6] = disturbance_est.x;
 	aug_state_est.pData[7] = disturbance_est.y;
 	aug_state_est.pData[8] = disturbance_est.z;

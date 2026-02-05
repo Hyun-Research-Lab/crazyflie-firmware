@@ -142,6 +142,12 @@ static float flap_phase = 0.0f;
 static float l = 0.0f;
 static float follower_yaw = 0.0f;
 
+// Parent information
+static float m_l = 0.0f;
+static struct vec F_d_l_bar = { 0, 0, 0 };
+static struct vec x_l;
+static struct vec v_l;
+
 static int8_t rod[3] = { 0, 1, 0 }; // default value
 static struct vec re = { 0, 0, 0 };
 
@@ -185,66 +191,46 @@ void setLedBitmask() {
 }
 
 void p2pCB(P2PPacket* packet) {
-  // Copy time from node 1 (TODO)
-  if (packet->port == 1) {
-    memcpy(&t, packet->data, sizeof(float));
-  }
-
-  // Leader does not process any packets
-  if (node == parent) {
-    eR_geo = 0.0f;
-    ev1_geo = 0.0f;
-    ev2_geo = 0.0f;
-    return;
-  }
-
-  if (is_root) {
-    eR_geo = 0.0f;
-    ev1_geo = 0.0f;
-    ev2_geo = 0.0f;
-
-    if (veq(target_position_root, vzero())) {
-      target_position_root = x;
-    }
-
-    setpoint_t setpoint = {0};
-    setpoint.mode.x = modeAbs;
-    setpoint.mode.y = modeAbs;
-    setpoint.mode.z = modeAbs;
-
-    setpoint.position.x = target_position_root.x;
-    setpoint.position.y = target_position_root.y;
-    setpoint.position.z = target_position_root.z;
-
-    commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_CRTP);
-    return;
-  }
-
+  // Leader and root do not process any packets
   // Only process packets from the parent
-  if (packet->port != parent) {
+  if (node == parent || is_root || packet->port != parent) {
     return;
   }
 
   // Reset the counter every time we get a packet from the parent
   counter = 0;
-  
-  float m_l;
-  struct vec F_d_l_bar;
-  struct vec x_l;
-  struct vec v_l;
 
   // Get parent information
-  memcpy(&m_l,         packet->data + sizeof(float),    sizeof(float));
-  memcpy(&F_d_l_bar.x, packet->data + 2*sizeof(float),  sizeof(float));
-  memcpy(&F_d_l_bar.y, packet->data + 3*sizeof(float),  sizeof(float));
-  memcpy(&F_d_l_bar.z, packet->data + 4*sizeof(float),  sizeof(float));
-  memcpy(&x_l.x,       packet->data + 5*sizeof(float),  sizeof(float));
-  memcpy(&x_l.y,       packet->data + 6*sizeof(float),  sizeof(float));
-  memcpy(&x_l.z,       packet->data + 7*sizeof(float),  sizeof(float));
-  memcpy(&v_l.x,       packet->data + 8*sizeof(float),  sizeof(float));
-  memcpy(&v_l.y,       packet->data + 9*sizeof(float),  sizeof(float));
-  memcpy(&v_l.z,       packet->data + 10*sizeof(float), sizeof(float));
+  memcpy(        &m_l, packet->data + 0 * sizeof(float),  sizeof(float));
+  memcpy(&F_d_l_bar.x, packet->data + 1 * sizeof(float),  sizeof(float));
+  memcpy(&F_d_l_bar.y, packet->data + 2 * sizeof(float),  sizeof(float));
+  memcpy(&F_d_l_bar.z, packet->data + 3 * sizeof(float),  sizeof(float));
+  memcpy(      &x_l.x, packet->data + 4 * sizeof(float),  sizeof(float));
+  memcpy(      &x_l.y, packet->data + 5 * sizeof(float),  sizeof(float));
+  memcpy(      &x_l.z, packet->data + 6 * sizeof(float),  sizeof(float));
+  memcpy(      &v_l.x, packet->data + 7 * sizeof(float),  sizeof(float));
+  memcpy(      &v_l.y, packet->data + 8 * sizeof(float),  sizeof(float));
+  memcpy(      &v_l.z, packet->data + 9 * sizeof(float),  sizeof(float));
+}
 
+void setRootSetpoint() {
+  if (veq(target_position_root, vzero())) {
+    target_position_root = x;
+  }
+
+  setpoint_t setpoint = {0};
+  setpoint.mode.x = modeAbs;
+  setpoint.mode.y = modeAbs;
+  setpoint.mode.z = modeAbs;
+
+  setpoint.position.x = target_position_root.x;
+  setpoint.position.y = target_position_root.y;
+  setpoint.position.z = target_position_root.z;
+
+  commanderSetSetpoint(&setpoint, COMMANDER_PRIORITY_CRTP);
+}
+
+void setFollowerSetpoint() {
   if (vmag(F_d_l_bar) < 1e-6f) {
     ei = vzero();
     return;
@@ -325,7 +311,7 @@ void p2pCB(P2PPacket* packet) {
 #ifdef PID_ROBUSTNESS
     ex_rob = vsub(re, re_d);
     ev_rob = vsub(re_dot, re_d_dot);
-    ei_rob = vadd(ei_rob, vdiv(ex_rob, NETWORK_RATE));
+    ei_rob = vadd(ei_rob, vdiv(ex_rob, CRAZYSAR_NETWORK_RATE));
     ei_rob = vclampscl2(ei_rob, -sigma_rob, sigma_rob);
 
     struct mat33 P_onto_re = mscl(1.0f/vdot(re, re), vouter(re, re));
@@ -383,7 +369,7 @@ void appMain() {
   p2pRegisterCB(p2pCB);
   
   P2PPacket packet;
-  packet.size = 11*sizeof(float);
+  packet.size = 10 * sizeof(float);
 
   logVarId_t logIdAccX = logGetVarId("acc", "x");
   logVarId_t logIdAccY = logGetVarId("acc", "y");
@@ -394,26 +380,10 @@ void appMain() {
   float accZ_init = logGetFloat(logIdAccZ);
   float acc_norm_init = sqrtf(accX_init*accX_init + accY_init*accY_init + accZ_init*accZ_init);
 
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+
   while (1) {
-    vTaskDelay(F2T(NETWORK_RATE));
-    if (node == 1 && vmag(F_d_bar) > 1e-6f) {
-      t += 1.0f/NETWORK_RATE;
-    }
-
-    packet.port = node;
-    memcpy(packet.data,                    &t,         sizeof(float));
-    memcpy(packet.data + sizeof(float),    &m,         sizeof(float));
-    memcpy(packet.data + 2*sizeof(float),  &F_d_bar.x, sizeof(float));
-    memcpy(packet.data + 3*sizeof(float),  &F_d_bar.y, sizeof(float));
-    memcpy(packet.data + 4*sizeof(float),  &F_d_bar.z, sizeof(float));
-    memcpy(packet.data + 5*sizeof(float),  &x.x,       sizeof(float));
-    memcpy(packet.data + 6*sizeof(float),  &x.y,       sizeof(float));
-    memcpy(packet.data + 7*sizeof(float),  &x.z,       sizeof(float));
-    memcpy(packet.data + 8*sizeof(float),  &v.x,       sizeof(float));
-    memcpy(packet.data + 9*sizeof(float),  &v.y,       sizeof(float));
-    memcpy(packet.data + 10*sizeof(float), &v.z,       sizeof(float));
-
-    radiolinkSendP2PPacketBroadcast(&packet);
+    vTaskDelayUntil(&xLastWakeTime, F2T(CRAZYSAR_NETWORK_RATE));
 
     // If a follower is disabled...
     if (node != parent && disable_props) {
@@ -432,10 +402,44 @@ void appMain() {
       counter = 0;
     } else {
       counter++;
-      if (counter > 100 && t > 1.0f) {
-        is_root = true;
-      }
+      // if (counter > 100 && t > 1.0f) {
+      //   is_root = true;
+      //   setLedBitmask();
+      // }
     }
+
+    if (node == parent) {
+      eR_geo = 0.0f;
+      ev1_geo = 0.0f;
+      ev2_geo = 0.0f;
+
+    } else if (is_root) {
+      eR_geo = 0.0f;
+      ev1_geo = 0.0f;
+      ev2_geo = 0.0f;
+      
+      setRootSetpoint();
+
+    } else {
+      setFollowerSetpoint();
+    }
+
+    t += 1.0f / CRAZYSAR_NETWORK_RATE;
+
+    packet.port = node;
+    memcpy(packet.data + 0 * sizeof(float),         &m, sizeof(float));
+    memcpy(packet.data + 1 * sizeof(float), &F_d_bar.x, sizeof(float));
+    memcpy(packet.data + 2 * sizeof(float), &F_d_bar.y, sizeof(float));
+    memcpy(packet.data + 3 * sizeof(float), &F_d_bar.z, sizeof(float));
+    memcpy(packet.data + 4 * sizeof(float),       &x.x, sizeof(float));
+    memcpy(packet.data + 5 * sizeof(float),       &x.y, sizeof(float));
+    memcpy(packet.data + 6 * sizeof(float),       &x.z, sizeof(float));
+    memcpy(packet.data + 7 * sizeof(float),       &v.x, sizeof(float));
+    memcpy(packet.data + 8 * sizeof(float),       &v.y, sizeof(float));
+    memcpy(packet.data + 9 * sizeof(float),       &v.z, sizeof(float));
+
+    // vTaskDelay(M2T(node)); // Stagger transmissions based on node ID
+    radiolinkSendP2PPacketBroadcast(&packet);
   }
 }
 
@@ -514,11 +518,11 @@ bool controllerOutOfTreeTest() {
 }
 
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const uint32_t tick) {
-  if (!RATE_DO_EXECUTE(ATTITUDE_RATE, tick)) {
+  if (!RATE_DO_EXECUTE(CRAZYSAR_ATTITUDE_RATE, tick)) {
     return;
   }
-  
-  float dt = (float)(1.0f/ATTITUDE_RATE);
+
+  float dt = (float)(1.0f / CRAZYSAR_ATTITUDE_RATE);
 
   // States
   x = mkvec(state->position.x, state->position.y, state->position.z);
