@@ -61,7 +61,6 @@ static float t = 0;
 static struct vec target_position_root = { 0, 0, 0 };
 
 // Quadrotor parameters
-static float m = CF_MASS; // kg
 static struct vec J = { 16.571710e-6f, 16.655602e-6f, 29.261652e-6f }; // kg m^2
 
 // Gains
@@ -108,14 +107,24 @@ static uint8_t node = 0; // node = parent is leader
 static uint8_t parent = 0;
 static bool is_root = false;
 
-static struct vec F_d_bar = { 0, 0, 0 };
-static struct vec x = { 0, 0, 0 };
-static struct vec v = { 0, 0, 0 };
 static struct mat33 R = { .m = {
   { 1, 0, 0 },
   { 0, 1, 0 },
   { 0, 0, 1 }
 } };
+
+static LeaderFollowerData_t self_data = {
+  .m = CF_MASS, // kg
+  .F_d_bar = { 0, 0, 0 },
+  .x = { 0, 0, 0 },
+  .v = { 0, 0, 0 }
+};
+static LeaderFollowerData_t parent_data = {
+  .m = CF_MASS, // Initialize to own mass in case of no data
+  .F_d_bar = { 0, 0, 0 },
+  .x = { 0, 0, 0 },
+  .v = { 0, 0, 0 }
+};
 
 static float kR_geo = 5.0f;
 static float kv_geo = 5.0f;
@@ -141,12 +150,6 @@ static float flap_phase = 0.0f;
 
 static float l = 0.0f;
 static float follower_yaw = 0.0f;
-
-// Parent information
-static float m_l = 0.0f;
-static struct vec F_d_l_bar = { 0, 0, 0 };
-static struct vec x_l;
-static struct vec v_l;
 
 static int8_t rod[3] = { 0, 1, 0 }; // default value
 static struct vec re = { 0, 0, 0 };
@@ -201,21 +204,12 @@ void p2pCB(P2PPacket* packet) {
   counter = 0;
 
   // Get parent information
-  memcpy(        &m_l, packet->data + 0 * sizeof(float),  sizeof(float));
-  memcpy(&F_d_l_bar.x, packet->data + 1 * sizeof(float),  sizeof(float));
-  memcpy(&F_d_l_bar.y, packet->data + 2 * sizeof(float),  sizeof(float));
-  memcpy(&F_d_l_bar.z, packet->data + 3 * sizeof(float),  sizeof(float));
-  memcpy(      &x_l.x, packet->data + 4 * sizeof(float),  sizeof(float));
-  memcpy(      &x_l.y, packet->data + 5 * sizeof(float),  sizeof(float));
-  memcpy(      &x_l.z, packet->data + 6 * sizeof(float),  sizeof(float));
-  memcpy(      &v_l.x, packet->data + 7 * sizeof(float),  sizeof(float));
-  memcpy(      &v_l.y, packet->data + 8 * sizeof(float),  sizeof(float));
-  memcpy(      &v_l.z, packet->data + 9 * sizeof(float),  sizeof(float));
+  memcpy(parent_data.raw, packet->data, LEADER_FOLLOWER_DATA_SIZE * sizeof(float));
 }
 
 void setRootSetpoint() {
   if (veq(target_position_root, vzero())) {
-    target_position_root = x;
+    target_position_root = self_data.x;
   }
 
   setpoint_t setpoint = {0};
@@ -231,14 +225,14 @@ void setRootSetpoint() {
 }
 
 void setFollowerSetpoint() {
-  if (vmag(F_d_l_bar) < 1e-6f) {
+  if (vmag(parent_data.F_d_bar) < 1e-6f) {
     ei = vzero();
     return;
   }
 
   // Where the magic happens
-  re = vsub(x, x_l);
-  struct vec re_dot = vsub(v, v_l);
+  re = vsub(self_data.x, parent_data.x);
+  struct vec re_dot = vsub(self_data.v, parent_data.v);
   l = vmag(re);//0.3716;
 
   // // If the rod is broken, become root
@@ -332,8 +326,8 @@ void setFollowerSetpoint() {
 #endif
   }
 
-  F_d_bar = vscl(m, vadd(vdiv(F_d_l_bar, m_l), u));
-  struct vec F_d = vadd(F_d_bar, vscl(m*GRAVITY_MAGNITUDE, vbasis(2)));
+  self_data.F_d_bar = vscl(self_data.m, vadd(vdiv(parent_data.F_d_bar, parent_data.m), u));
+  struct vec F_d = vadd(self_data.F_d_bar, vscl(self_data.m*GRAVITY_MAGNITUDE, vbasis(2)));
 
   // Send F_d to the controller
   float f = vdot(F_d, mvmul(R, vbasis(2)));
@@ -369,7 +363,7 @@ void appMain() {
   p2pRegisterCB(p2pCB);
   
   P2PPacket packet;
-  packet.size = 10 * sizeof(float);
+  packet.size = LEADER_FOLLOWER_DATA_SIZE * sizeof(float);
 
   logVarId_t logIdAccX = logGetVarId("acc", "x");
   logVarId_t logIdAccY = logGetVarId("acc", "y");
@@ -427,16 +421,7 @@ void appMain() {
     t += 1.0f / CRAZYSAR_NETWORK_RATE;
 
     packet.port = node;
-    memcpy(packet.data + 0 * sizeof(float),         &m, sizeof(float));
-    memcpy(packet.data + 1 * sizeof(float), &F_d_bar.x, sizeof(float));
-    memcpy(packet.data + 2 * sizeof(float), &F_d_bar.y, sizeof(float));
-    memcpy(packet.data + 3 * sizeof(float), &F_d_bar.z, sizeof(float));
-    memcpy(packet.data + 4 * sizeof(float),       &x.x, sizeof(float));
-    memcpy(packet.data + 5 * sizeof(float),       &x.y, sizeof(float));
-    memcpy(packet.data + 6 * sizeof(float),       &x.z, sizeof(float));
-    memcpy(packet.data + 7 * sizeof(float),       &v.x, sizeof(float));
-    memcpy(packet.data + 8 * sizeof(float),       &v.y, sizeof(float));
-    memcpy(packet.data + 9 * sizeof(float),       &v.z, sizeof(float));
+    memcpy(packet.data, self_data.raw, LEADER_FOLLOWER_DATA_SIZE * sizeof(float));
 
     // vTaskDelay(M2T(node)); // Stagger transmissions based on node ID
     radiolinkSendP2PPacketBroadcast(&packet);
@@ -525,8 +510,8 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   float dt = (float)(1.0f / CRAZYSAR_ATTITUDE_RATE);
 
   // States
-  x = mkvec(state->position.x, state->position.y, state->position.z);
-  v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z);
+  self_data.x = mkvec(state->position.x, state->position.y, state->position.z);
+  self_data.v = mkvec(state->velocity.x, state->velocity.y, state->velocity.z);
   struct quat q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
   R = quat2rotmat(q);
   struct vec W = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z));
@@ -557,18 +542,17 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec a_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z);
     struct vec b1_d = mkvec(cosf(desiredYaw), sinf(desiredYaw), 0);
 
-    ex = vsub(x, x_d);
-    ev = vsub(v, v_d);
+    ex = vsub(self_data.x, x_d);
+    ev = vsub(self_data.v, v_d);
     ei = vadd(ei, vscl(dt, vadd(ev, vscl(c1, ex))));
     ei = vclampscl2(ei, -sigma, sigma);
     
-    F_d_bar = vscl(m, vadd4(
+    self_data.F_d_bar = vscl(self_data.m, vadd4(
       vscl(-kx, ex),
       vscl(-kv, ev),
       vscl(-ki, ei),
       a_d));
-    // self->F_d_bar = veltmul(mkvec(0.1f, 0.1f, 1.0f), self->F_d_bar);
-    struct vec F_d = vadd(F_d_bar, vscl(m*GRAVITY_MAGNITUDE, vbasis(2)));
+    struct vec F_d = vadd(self_data.F_d_bar, vscl(self_data.m*GRAVITY_MAGNITUDE, vbasis(2)));
     f = vdot(F_d, mvmul(R, vbasis(2)));
     
     if (f < 0.01f) {
@@ -590,11 +574,11 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec a_d = mkvec(setpoint->acceleration.x, setpoint->acceleration.y, setpoint->acceleration.z);
     struct vec b1_d = mkvec(cosf(desiredYaw), sinf(desiredYaw), 0);
 
-    ev = vsub(v, v_d);
+    ev = vsub(self_data.v, v_d);
     ei = vadd(ei, vscl(dt, ev));
     // ei = vclampscl2(ei, -sigma, sigma);
     
-    F_d_bar = vscl(m, vadd3(
+    self_data.F_d_bar = vscl(self_data.m, vadd3(
       vscl(-kv, ev),
       vscl(-4.0f, ei),
       a_d));
@@ -604,11 +588,10 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       float x3 = state->position.z;
       float x3_d = setpoint->position.z;
 
-      F_d_bar.z += -m*kx*(x3 - x3_d);
+      self_data.F_d_bar.z += -self_data.m*kx*(x3 - x3_d);
     }
 
-    // self->F_d_bar = veltmul(mkvec(0.1f, 0.1f, 1.0f), self->F_d_bar);
-    struct vec F_d = vadd(F_d_bar, vscl(m*GRAVITY_MAGNITUDE, vbasis(2)));
+    struct vec F_d = vadd(self_data.F_d_bar, vscl(self_data.m*GRAVITY_MAGNITUDE, vbasis(2)));
     f = vdot(F_d, mvmul(R, vbasis(2)));
     
     if (f < 0.01f) {
@@ -650,7 +633,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       struct vec b3 = mcolumn(R, 2);
       struct vec b3_d = mcolumn(R_d, 2);
       struct vec F_d = vscl(f/vdot(b3_d, b3), b3_d);
-      F_d_bar = vsub(F_d, vscl(m*GRAVITY_MAGNITUDE, vbasis(2)));
+      self_data.F_d_bar = vsub(F_d, vscl(self_data.m*GRAVITY_MAGNITUDE, vbasis(2)));
     }
   }
 
@@ -726,7 +709,7 @@ PARAM_ADD(PARAM_UINT8, node, &node)
 PARAM_ADD(PARAM_UINT8, parent, &parent)
 PARAM_ADD_WITH_CALLBACK(PARAM_UINT8, is_root, &is_root, &setLedBitmask)
 
-PARAM_ADD(PARAM_FLOAT, m, &m)
+PARAM_ADD(PARAM_FLOAT, m, &self_data.m)
 
 PARAM_ADD(PARAM_FLOAT, kx, &kx)
 PARAM_ADD(PARAM_FLOAT, kv, &kv)
@@ -798,9 +781,9 @@ LOG_ADD(LOG_FLOAT, W_d_dot1, &W_d_dot.x)
 LOG_ADD(LOG_FLOAT, W_d_dot2, &W_d_dot.y)
 LOG_ADD(LOG_FLOAT, W_d_dot3, &W_d_dot.z)
 
-LOG_ADD(LOG_FLOAT, F_d1, &F_d_bar.x)
-LOG_ADD(LOG_FLOAT, F_d2, &F_d_bar.y)
-LOG_ADD(LOG_FLOAT, F_d3, &F_d_bar.z)
+LOG_ADD(LOG_FLOAT, F_d1, &self_data.F_d_bar.x)
+LOG_ADD(LOG_FLOAT, F_d2, &self_data.F_d_bar.y)
+LOG_ADD(LOG_FLOAT, F_d3, &self_data.F_d_bar.z)
 
 LOG_ADD(LOG_FLOAT, eR_geo, &eR_geo)
 LOG_ADD(LOG_FLOAT, ev1_geo, &ev1_geo)
