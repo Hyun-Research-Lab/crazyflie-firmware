@@ -252,30 +252,32 @@ void setFollowerSetpoint() {
   struct vec rod_normalized = vnormalize(mkvec((float)rod[0], (float)rod[1], (float)rod[2]));
 
   // TODO: There is a weird dumb issue here
-  // if (self->flap_freq == 0 && self->flap_amp == 0) {
+  if (flap_freq == 0 && flap_amp == 0) {
     re_d = vscl(l, rod_normalized);
     re_d_dot = vzero();
     re_d_ddot = vzero();
 
-  // } else {
-  //   float theta =      self->flap_amp * cosf(self->flap_freq*(t+self->flap_phase));
-  //   float theta_dot =  self->flap_amp * -self->flap_freq*sinf(self->flap_freq*(t+self->flap_phase));
-  //   float theta_ddot = self->flap_amp * -self->flap_freq*self->flap_freq*cosf(self->flap_freq*(t+self->flap_phase));
+  } else {
+    float flap_freq_rad = 2.0f * M_PI_F * flap_freq;
 
-  //   re_d = vnormalize(mkvec(cosf(theta), 0, sinf(theta) + rod_normalized.z));
-  //   re_d_dot = vscl(theta_dot, mkvec(-sinf(theta), 0, cosf(theta)));
-  //   re_d_ddot = vadd(
-  //     vscl(theta_dot * theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
-  //     vscl(theta_ddot, mkvec(-sinf(theta), 0, cosf(theta)))
-  //   );
+    float theta =      flap_amp * cosf(flap_freq_rad * (t + flap_phase));
+    float theta_dot =  flap_amp * -flap_freq_rad * sinf(flap_freq_rad * (t + flap_phase));
+    float theta_ddot = flap_amp * -flap_freq_rad * flap_freq_rad * cosf(flap_freq_rad * (t + flap_phase));
 
-  //   float angle = atan2f(rod_normalized.y, rod_normalized.x);
-  //   struct quat q_flap = qaxisangle(vbasis(2), angle);
+    re_d = vnormalize(mkvec(cosf(theta), 0, sinf(theta))); // + rod_normalized.z
+    re_d_dot = vscl(theta_dot, mkvec(-sinf(theta), 0, cosf(theta)));
+    re_d_ddot = vadd(
+      vscl(theta_dot * theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
+      vscl(theta_ddot, mkvec(-sinf(theta), 0, cosf(theta)))
+    );
 
-  //   re_d = vscl(l, qvrot(q_flap, re_d));
-  //   re_d_dot = vscl(l, qvrot(q_flap, re_d_dot));
-  //   re_d_ddot = vscl(l, qvrot(q_flap, re_d_ddot));
-  // }
+    float angle = atan2f(rod_normalized.y, rod_normalized.x);
+    struct quat q_flap = qaxisangle(vbasis(2), angle);
+
+    re_d = vscl(l, qvrot(q_flap, re_d));
+    re_d_dot = vscl(l, qvrot(q_flap, re_d_dot));
+    re_d_ddot = vscl(l, qvrot(q_flap, re_d_ddot));
+  }
 
   struct vec b1_d = mkvec(cosf(follower_yaw), sinf(follower_yaw), 0);
 
