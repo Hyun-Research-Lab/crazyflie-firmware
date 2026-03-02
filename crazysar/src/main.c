@@ -47,6 +47,7 @@
 #include "power_distribution.h"
 #include "crtp_commander_high_level.h"
 #include "radiolink.h"
+#include "configblock.h"
 #include "param.h"
 #include "log.h"
 #include "main.h"
@@ -354,10 +355,14 @@ void setFollowerSetpoint() {
 }
 
 void appMain() {
+  // Get node from the radio address
+  uint64_t address = configblockGetRadioAddress();
+  node = (uint8_t)((address) & 0xFF);
+
   paramIdLedBitmask = paramGetVarId("led", "bitmask");
   
-  // Wait for the node and parent to be set
-  while (node == 0 || parent == 0) {
+  // Wait for the parent to be set
+  while (parent == 0) {
     vTaskDelay(M2T(100));
   }
 
@@ -695,8 +700,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
 }
 
 void decodeConfigParams() {
-  node = config_params & 0x0F;
-  parent = (config_params >> 4) & 0x0F;
+  parent = config_params & 0xFF;
 
   memcpy(rod, (int8_t*)&config_params + 1, 3*sizeof(int8_t));
 
