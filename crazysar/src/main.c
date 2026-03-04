@@ -56,6 +56,7 @@
 
 static uint8_t disable_props = 0;
 static uint8_t enable_filters = 0;
+static uint8_t fault = 0;
 
 static float t = 0;
 
@@ -160,6 +161,8 @@ static uint32_t config_params = 0;
 static paramVarId_t paramIdLedBitmask;
 
 static uint32_t counter = 0;
+
+static float acc_norm = 0.0f; // Gs
 
 #ifdef PID_ROBUSTNESS
 static inline struct mat33 vouter(struct vec a, struct vec b) {
@@ -386,17 +389,7 @@ void appMain() {
   while (1) {
     vTaskDelayUntil(&xLastWakeTime, F2T(CRAZYSAR_NETWORK_RATE));
 
-    // If a follower is disabled...
-    if (node != parent && disable_props) {
-      float accX = logGetFloat(logIdAccX);
-      float accY = logGetFloat(logIdAccY);
-      float accZ = logGetFloat(logIdAccZ);
-      float acc_norm = sqrtf(accX*accX + accY*accY + accZ*accZ);
-
-      if (acc_norm - acc_norm_init > 0.05f) {
-        disable_props = 0;
-      }
-    }
+    t += 1.0f / CRAZYSAR_NETWORK_RATE;
 
     // If it has been a certain number of cycles since the last command from the parent, become root
     if (node == parent || is_root) {
@@ -409,29 +402,54 @@ void appMain() {
       // }
     }
 
-    if (node == parent) {
+    if (fault) {
       eR_geo = 0.0f;
       ev1_geo = 0.0f;
       ev2_geo = 0.0f;
 
-    } else if (is_root) {
-      eR_geo = 0.0f;
-      ev1_geo = 0.0f;
-      ev2_geo = 0.0f;
-      
-      setRootSetpoint();
+      setpoint_t stop_setpoint = {0};
+      commanderSetSetpoint(&stop_setpoint, COMMANDER_PRIORITY_EXTRX);
 
     } else {
-      setFollowerSetpoint();
+      // If a follower is disabled...
+      if (node != parent && disable_props) {
+        float accX = logGetFloat(logIdAccX);
+        float accY = logGetFloat(logIdAccY);
+        float accZ = logGetFloat(logIdAccZ);
+        float acc_norm = sqrtf(accX*accX + accY*accY + accZ*accZ);
+
+        if (acc_norm - acc_norm_init > 0.05f) {
+          disable_props = 0;
+        }
+      }
+
+      if (node == parent) {
+        eR_geo = 0.0f;
+        ev1_geo = 0.0f;
+        ev2_geo = 0.0f;
+
+      } else if (is_root) {
+        eR_geo = 0.0f;
+        ev1_geo = 0.0f;
+        ev2_geo = 0.0f;
+        
+        setRootSetpoint();
+
+      } else {
+        setFollowerSetpoint();
+
+        if (acc_norm > 0.5f && counter > 20) {
+          is_root = true;
+          setLedBitmask();
+        }
+      }
+
+      packet.port = node;
+      memcpy(packet.data, self_data.raw, LEADER_FOLLOWER_DATA_SIZE * sizeof(float));
+
+      // vTaskDelay(M2T(node)); // Stagger transmissions based on node ID
+      radiolinkSendP2PPacketBroadcast(&packet);
     }
-
-    t += 1.0f / CRAZYSAR_NETWORK_RATE;
-
-    packet.port = node;
-    memcpy(packet.data, self_data.raw, LEADER_FOLLOWER_DATA_SIZE * sizeof(float));
-
-    // vTaskDelay(M2T(node)); // Stagger transmissions based on node ID
-    radiolinkSendP2PPacketBroadcast(&packet);
   }
 }
 
@@ -522,6 +540,9 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
   struct quat q = mkquat(state->attitudeQuaternion.x, state->attitudeQuaternion.y, state->attitudeQuaternion.z, state->attitudeQuaternion.w);
   R = quat2rotmat(q);
   struct vec W = mkvec(radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z));
+
+  // Save accelerometer data
+  acc_norm = vmag(mkvec(sensors->acc.x, sensors->acc.y, sensors->acc.z - 1.0f));
 
   float desiredYaw = 0;
   // if (setpoint->mode.yaw == modeVelocity) {
@@ -744,6 +765,8 @@ PARAM_ADD(PARAM_FLOAT, flap_phase, &flap_phase)
 
 PARAM_ADD_WITH_CALLBACK(PARAM_UINT32, config_params, &config_params, &decodeConfigParams)
 
+PARAM_ADD(PARAM_UINT8, fault, &fault)
+
 PARAM_GROUP_STOP(crazysar)
 
 LOG_GROUP_START(crazysar)
@@ -813,5 +836,7 @@ LOG_ADD(LOG_FLOAT, re2, &re.y)
 LOG_ADD(LOG_FLOAT, re3, &re.z)
 
 LOG_ADD(LOG_UINT32, counter, &counter)
+
+LOG_ADD(LOG_FLOAT, acc_norm, &acc_norm)
 
 LOG_GROUP_STOP(crazysar)
