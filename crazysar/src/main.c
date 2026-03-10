@@ -375,15 +375,6 @@ void appMain() {
   P2PPacket packet;
   packet.size = LEADER_FOLLOWER_DATA_SIZE * sizeof(float);
 
-  logVarId_t logIdAccX = logGetVarId("acc", "x");
-  logVarId_t logIdAccY = logGetVarId("acc", "y");
-  logVarId_t logIdAccZ = logGetVarId("acc", "z");
-
-  float accX_init = logGetFloat(logIdAccX);
-  float accY_init = logGetFloat(logIdAccY);
-  float accZ_init = logGetFloat(logIdAccZ);
-  float acc_norm_init = sqrtf(accX_init*accX_init + accY_init*accY_init + accZ_init*accZ_init);
-
   TickType_t xLastWakeTime = xTaskGetTickCount();
 
   while (1) {
@@ -412,15 +403,8 @@ void appMain() {
 
     } else {
       // If a follower is disabled...
-      if (node != parent && disable_props) {
-        float accX = logGetFloat(logIdAccX);
-        float accY = logGetFloat(logIdAccY);
-        float accZ = logGetFloat(logIdAccZ);
-        float acc_norm = sqrtf(accX*accX + accY*accY + accZ*accZ);
-
-        if (acc_norm - acc_norm_init > 0.05f) {
-          disable_props = 0;
-        }
+      if (node != parent && disable_props && acc_norm > 0.05f) {
+        disable_props = 0;
       }
 
       if (node == parent) {
