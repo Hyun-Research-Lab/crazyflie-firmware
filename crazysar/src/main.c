@@ -58,6 +58,8 @@ static uint8_t disable_props = 0;
 static uint8_t enable_filters = 0;
 static uint8_t fault = 0;
 
+static uint8_t deactivated = 0;
+
 static float t = 0;
 
 static struct vec target_position_root = { 0, 0, 0 };
@@ -307,7 +309,6 @@ void setFollowerSetpoint() {
 
   struct vec u = vadd(vscl(u_m1, t2), vscl(u_m2, t3));
 
-  if (!disable_props) {
 #ifdef PID_ROBUSTNESS
     ex_rob = vsub(re, re_d);
     ev_rob = vsub(re_dot, re_d_dot);
@@ -330,7 +331,6 @@ void setFollowerSetpoint() {
     // Disturbance observer
     disturbance_observer_step(&u, &re, &re_dot, &t1);
 #endif
-  }
 
   self_data.F_d_bar = vscl(self_data.m, vadd(vdiv(parent_data.F_d_bar, parent_data.m), u));
   struct vec F_d = vadd(self_data.F_d_bar, vscl(self_data.m*GRAVITY_MAGNITUDE, vbasis(2)));
@@ -402,11 +402,6 @@ void appMain() {
       commanderSetSetpoint(&stop_setpoint, COMMANDER_PRIORITY_EXTRX);
 
     } else {
-      // If a follower is disabled...
-      if (node != parent && disable_props && acc_norm > 0.05f) {
-        disable_props = 0;
-      }
-
       if (node == parent) {
         eR_geo = 0.0f;
         ev1_geo = 0.0f;
@@ -418,6 +413,15 @@ void appMain() {
         ev2_geo = 0.0f;
         
         setRootSetpoint();
+
+      // If a follower is disabled and a jolt is detected...
+      } else if (deactivated) {
+        setpoint_t stop_setpoint = {0};
+        commanderSetSetpoint(&stop_setpoint, COMMANDER_PRIORITY_CRTP);
+
+        if (acc_norm > 0.05f) {
+          deactivated = 0;
+        }
 
       } else {
         setFollowerSetpoint();
@@ -731,6 +735,7 @@ PARAM_ADD(PARAM_FLOAT, kW, &kW)
 PARAM_ADD(PARAM_FLOAT, kI, &kI)
 
 PARAM_ADD(PARAM_UINT8, disable_props, &disable_props)
+PARAM_ADD(PARAM_UINT8, deactivated, &deactivated)
 
 PARAM_ADD(PARAM_FLOAT, kR_geo, &kR_geo)
 PARAM_ADD(PARAM_FLOAT, kv_geo, &kv_geo)
