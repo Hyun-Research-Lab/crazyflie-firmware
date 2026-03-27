@@ -71,6 +71,7 @@ static struct vec J = { 16.571710e-6f, 16.655602e-6f, 29.261652e-6f }; // kg m^2
 static float kx = 7.0f;
 static float kv = 4.0f;
 static float ki = 1.0f;
+static float ki_vel = 4.0f;
 static float c1 = 3.6f;
 static float sigma = 1.0f;
 
@@ -83,6 +84,7 @@ static float c2 = 1.6f; // Increased this to help with attitude convergence, mig
 static struct vec ex = { 0, 0, 0 };
 static struct vec ev = { 0, 0, 0 };
 static struct vec ei = { 0, 0, 0 };
+static struct vec ei_vel = { 0, 0, 0 };
 
 static struct vec eR = { 0, 0, 0 };
 static struct vec eW = { 0, 0, 0 };
@@ -591,12 +593,12 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     struct vec b1_d = mkvec(cosf(desiredYaw), sinf(desiredYaw), 0);
 
     ev = vsub(self_data.v, v_d);
-    ei = vadd(ei, vscl(dt, ev));
+    ei_vel = vadd(ei_vel, vscl(dt, ev));
     // ei = vclampscl2(ei, -sigma, sigma);
     
     self_data.F_d_bar = vscl(self_data.m, vadd3(
       vscl(-kv, ev),
-      vscl(-4.0f, ei),
+      vscl(-ki_vel, ei_vel),
       a_d));
 
     // Hover setpoint (velocity control in the x/y directions, position control in the z direction)
@@ -612,6 +614,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     
     if (f < 0.01f) {
       ei = vzero();
+      ei_vel = vzero();
       eI = vzero();
       resetFilterBuffers();
     }
