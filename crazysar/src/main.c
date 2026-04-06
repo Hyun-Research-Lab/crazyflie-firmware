@@ -241,7 +241,7 @@ void setFollowerSetpoint() {
   // Where the magic happens
   re = vsub(self_data.x, parent_data.x);
   struct vec re_dot = vsub(self_data.v, parent_data.v);
-  l = vmag(re);//0.3716;
+  l = vmag(re);
 
   // // If the rod is broken, become root
   // if ((l < 0.25f || l > 0.55f) && !disable_props) {
@@ -384,15 +384,11 @@ void appMain() {
 
     t += 1.0f / CRAZYSAR_NETWORK_RATE;
 
-    // If it has been a certain number of cycles since the last command from the parent, become root
+    // Increment counter
     if (node == parent || is_root) {
       counter = 0;
     } else {
       counter++;
-      // if (counter > 100 && t > 1.0f) {
-      //   is_root = true;
-      //   setLedBitmask();
-      // }
     }
 
     if (fault) {
@@ -408,11 +404,13 @@ void appMain() {
         eR_geo = 0.0f;
         ev1_geo = 0.0f;
         ev2_geo = 0.0f;
+        l = 0.0f;
 
       } else if (is_root) {
         eR_geo = 0.0f;
         ev1_geo = 0.0f;
         ev2_geo = 0.0f;
+        l = 0.0f;
         
         setRootSetpoint();
 
@@ -428,7 +426,9 @@ void appMain() {
       } else {
         setFollowerSetpoint();
 
-        if (acc_norm > 0.5f && counter > 20) {
+        // If the parent or parent's rod has a fault...
+        if ((acc_norm > 0.5f && counter > 20) ||
+            (l > ROD_LENGTH + 0.20f || (0 < l && l < ROD_LENGTH - 0.10f))) {
           is_root = true;
           setLedBitmask();
         }
