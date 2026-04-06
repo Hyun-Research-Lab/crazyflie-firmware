@@ -62,7 +62,7 @@ static uint8_t deactivated = 0;
 
 static float t = 0;
 
-static struct vec target_position_root = { 0, 0, 0 };
+static struct vec target_position_root = { 0, 0, 0 }; // { -1.0f, 0.5f, 2.0f };
 
 // Quadrotor parameters
 static struct vec J = { 16.571710e-6f, 16.655602e-6f, 29.261652e-6f }; // kg m^2
