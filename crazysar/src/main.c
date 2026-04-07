@@ -166,7 +166,7 @@ static uint32_t config_params = 0;
 
 static paramVarId_t paramIdLedBitmask;
 
-static uint32_t counter = 0;
+static uint8_t counter = 0;
 
 static float acc_norm = 0.0f; // Gs
 
@@ -396,7 +396,7 @@ void appMain() {
     // Increment counter
     if (node == parent || is_root) {
       counter = 0;
-    } else {
+    } else if (counter < UINT8_MAX) {
       counter++;
     }
 
@@ -841,7 +841,7 @@ LOG_ADD(LOG_FLOAT, re_d_x, &re_d.x)
 LOG_ADD(LOG_FLOAT, re_d_y, &re_d.y)
 LOG_ADD(LOG_FLOAT, re_d_z, &re_d.z)
 
-LOG_ADD(LOG_UINT32, counter, &counter)
+LOG_ADD(LOG_UINT8, counter, &counter)
 
 LOG_ADD(LOG_FLOAT, acc_norm, &acc_norm)
 
