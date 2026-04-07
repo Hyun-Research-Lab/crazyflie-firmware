@@ -153,12 +153,14 @@ static struct vec ei_rob = { 0, 0, 0 };
 static float flap_freq = 0.0f;
 static float flap_amp = 0.0f;
 static float flap_phase = 0.0f;
+static uint8_t wave = 0;
 
 static float l = 0.0f;
 static float follower_yaw = 0.0f;
 
 static int8_t rod[3] = { 0, 1, 0 }; // default value
 static struct vec re = { 0, 0, 0 };
+static struct vec re_d = { 0, 0, 0 };
 
 static uint32_t config_params = 0;
 
@@ -253,13 +255,11 @@ void setFollowerSetpoint() {
   // }
 
   // Desired values
-  struct vec re_d;
   struct vec re_d_dot;
   struct vec re_d_ddot;
 
   struct vec rod_normalized = vnormalize(mkvec((float)rod[0], (float)rod[1], (float)rod[2]));
 
-  // TODO: There is a weird dumb issue here
   if (flap_freq == 0 && flap_amp == 0) {
     re_d = vscl(l, rod_normalized);
     re_d_dot = vzero();
@@ -268,16 +268,25 @@ void setFollowerSetpoint() {
   } else {
     float flap_freq_rad = 2.0f * M_PI_F * flap_freq;
 
-    float theta =      flap_amp * cosf(flap_freq_rad * (t + flap_phase));
-    float theta_dot =  flap_amp * -flap_freq_rad * sinf(flap_freq_rad * (t + flap_phase));
-    float theta_ddot = flap_amp * -flap_freq_rad * flap_freq_rad * cosf(flap_freq_rad * (t + flap_phase));
+    float theta =      flap_amp * cosf(flap_freq_rad * t + radians(flap_phase));
+    float theta_dot =  flap_amp * -flap_freq_rad * sinf(flap_freq_rad * t + radians(flap_phase));
+    float theta_ddot = flap_amp * -flap_freq_rad * flap_freq_rad * cosf(flap_freq_rad * t + radians(flap_phase));
 
-    re_d = vnormalize(mkvec(cosf(theta), 0, sinf(theta))); // + rod_normalized.z
-    re_d_dot = vscl(theta_dot, mkvec(-sinf(theta), 0, cosf(theta)));
-    re_d_ddot = vadd(
-      vscl(theta_dot * theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
-      vscl(theta_ddot, mkvec(-sinf(theta), 0, cosf(theta)))
-    );
+    if (wave) {
+      re_d = vnormalize(mkvec(cosf(theta), sinf(theta), 0));
+      re_d_dot = vscl(theta_dot, mkvec(-sinf(theta), cosf(theta), 0));
+      re_d_ddot = vadd(
+        vscl(theta_dot * theta_dot, mkvec(-cosf(theta), -sinf(theta), 0)),
+        vscl(theta_ddot, mkvec(-sinf(theta), cosf(theta), 0))
+      );
+    } else { // flap
+      re_d = vnormalize(mkvec(cosf(theta), 0, sinf(theta)));
+      re_d_dot = vscl(theta_dot, mkvec(-sinf(theta), 0, cosf(theta)));
+      re_d_ddot = vadd(
+        vscl(theta_dot * theta_dot, mkvec(-cosf(theta), 0, -sinf(theta))),
+        vscl(theta_ddot, mkvec(-sinf(theta), 0, cosf(theta)))
+      );
+    }
 
     float angle = atan2f(rod_normalized.y, rod_normalized.x);
     struct quat q_flap = qaxisangle(vbasis(2), angle);
@@ -754,6 +763,7 @@ PARAM_ADD(PARAM_FLOAT, follower_yaw, &follower_yaw)
 PARAM_ADD(PARAM_FLOAT, flap_freq, &flap_freq)
 PARAM_ADD(PARAM_FLOAT, flap_amp, &flap_amp)
 PARAM_ADD(PARAM_FLOAT, flap_phase, &flap_phase)
+PARAM_ADD(PARAM_UINT8, wave, &wave)
 
 PARAM_ADD_WITH_CALLBACK(PARAM_UINT32, config_params, &config_params, &decodeConfigParams)
 
@@ -823,9 +833,13 @@ LOG_ADD(LOG_INT8, rod1, &rod[0])
 LOG_ADD(LOG_INT8, rod2, &rod[1])
 LOG_ADD(LOG_INT8, rod3, &rod[2])
 
-LOG_ADD(LOG_FLOAT, re1, &re.x)
-LOG_ADD(LOG_FLOAT, re2, &re.y)
-LOG_ADD(LOG_FLOAT, re3, &re.z)
+LOG_ADD(LOG_FLOAT, re_x, &re.x)
+LOG_ADD(LOG_FLOAT, re_y, &re.y)
+LOG_ADD(LOG_FLOAT, re_z, &re.z)
+
+LOG_ADD(LOG_FLOAT, re_d_x, &re_d.x)
+LOG_ADD(LOG_FLOAT, re_d_y, &re_d.y)
+LOG_ADD(LOG_FLOAT, re_d_z, &re_d.z)
 
 LOG_ADD(LOG_UINT32, counter, &counter)
 
