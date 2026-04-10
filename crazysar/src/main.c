@@ -404,6 +404,7 @@ void appMain() {
       eR_geo = 0.0f;
       ev1_geo = 0.0f;
       ev2_geo = 0.0f;
+      l = 0.0f;
 
       setpoint_t stop_setpoint = {0};
       commanderSetSetpoint(&stop_setpoint, COMMANDER_PRIORITY_EXTRX);
