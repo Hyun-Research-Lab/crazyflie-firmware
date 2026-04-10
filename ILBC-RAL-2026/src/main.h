@@ -1,5 +1,5 @@
-#ifndef OUT_OF_TREE_CONTROLLER_H
-#define OUT_OF_TREE_CONTROLLER_H
+#ifndef MAIN_H
+#define MAIN_H
 
 #include "stabilizer_types.h"
 
@@ -46,4 +46,4 @@ void controllerOutOfTreeInit();
 bool controllerOutOfTreeTest();
 void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const sensorData_t *sensors, const state_t *state, const stabilizerStep_t tick);
 
-#endif // OUT_OF_TREE_CONTROLLER_H
+#endif // MAIN_H

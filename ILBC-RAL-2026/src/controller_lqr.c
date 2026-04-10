@@ -3,7 +3,7 @@
 #include "platform_defaults.h"
 #include "physicalConstants.h"
 #include "controller_lqr.h"
-#include "out_of_tree_controller.h"
+#include "main.h"
 #include "log.h"
 #include "arm_math.h"
 
