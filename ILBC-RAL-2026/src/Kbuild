@@ -1,4 +1,3 @@
 obj-y += main.o
 obj-y += gp_model_params.o
 obj-y += controller_lqr.o
-obj-y += random_numbers.o

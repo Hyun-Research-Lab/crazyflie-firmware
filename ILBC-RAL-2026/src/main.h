@@ -39,7 +39,6 @@ typedef enum {
   LearningTypeDisable,
   LearningTypeLinearModel,
   LearningTypeNonlinearModel,
-  LearningTypeTraining,
 } LearningType;
 
 void controllerOutOfTreeInit();

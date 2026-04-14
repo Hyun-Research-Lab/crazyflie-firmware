@@ -37,18 +37,13 @@ static NominalControllerFunctions nominalControllerFunctions[] = {
   {.init = controllerLQRInit, .update = controllerLQR},
 };
 
-LearningType learning_type = LearningTypeDisable;
+static LearningType learning_type = LearningTypeDisable;
 
 // Model parameters from gp_model_params.c
 extern gp_thrust_params_t thrust_params;
 #ifndef GP_MODEL_THRUST_ONLY
 extern gp_torque_params_t torque_params;
 #endif
-
-// Array of random numbers from random_numbers.c
-extern const int random_numbers_size;
-extern const float random_numbers[];
-static int rand_idx = 0;
 
 static data_t data;
 static control_t nominal_control = {0};
@@ -292,18 +287,6 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     full_control.torqueX = nominal_control.torqueX;
     full_control.torqueY = nominal_control.torqueY;
     full_control.torqueZ = nominal_control.torqueZ;
-  } else if (learning_type == LearningTypeTraining) {
-    // Add exploration noise to the nominal control
-    full_control.thrustSi = nominal_control.thrustSi + nominal_control.thrustSi * random_numbers[rand_idx];
-    full_control.torqueX = nominal_control.torqueX + nominal_control.torqueX * random_numbers[rand_idx];
-    full_control.torqueY = nominal_control.torqueY + nominal_control.torqueY * random_numbers[rand_idx];
-    full_control.torqueZ = nominal_control.torqueZ + nominal_control.torqueZ * random_numbers[rand_idx];
-
-    if (RATE_DO_EXECUTE(10, tick)) {
-      if (++rand_idx >= random_numbers_size) {
-        rand_idx = 0;
-      }
-    }
 
   } else {
     // Estimate the next state after a given time if the nominal control is applied
@@ -324,24 +307,24 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     gp_predict_torque(data.rotation, &torque_params, full_control.torque);
 #endif
 
-    // Disable learning if close to the equilibrium point
-    float x[12] = {
-      state->position.x, state->position.y, state->position.z,
-      state->velocity.x, state->velocity.y, state->velocity.z,
-      radians(state->attitude.roll), -radians(state->attitude.pitch), radians(state->attitude.yaw),
-      radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z),
-    };
-    float x_eq[12] = {
-      setpoint->position.x, setpoint->position.y, setpoint->position.z,
-      0.0f, 0.0f, 0.0f,
-      0.0f, 0.0f, 0.0f,
-      0.0f, 0.0f, 0.0f,
-    };
+    // // Disable learning if close to the equilibrium point
+    // float x[12] = {
+    //   state->position.x, state->position.y, state->position.z,
+    //   state->velocity.x, state->velocity.y, state->velocity.z,
+    //   radians(state->attitude.roll), -radians(state->attitude.pitch), radians(state->attitude.yaw),
+    //   radians(sensors->gyro.x), radians(sensors->gyro.y), radians(sensors->gyro.z),
+    // };
+    // float x_eq[12] = {
+    //   setpoint->position.x, setpoint->position.y, setpoint->position.z,
+    //   0.0f, 0.0f, 0.0f,
+    //   0.0f, 0.0f, 0.0f,
+    //   0.0f, 0.0f, 0.0f,
+    // };
 
-    if (arm_euclidean_distance_f32(x, x_eq, 12) < 0.25f) {
-      learning_type = LearningTypeDisable;
-      DEBUG_PRINT("Disabling learning\n");
-    }
+    // if (arm_euclidean_distance_f32(x, x_eq, 12) < 0.25f) {
+    //   learning_type = LearningTypeDisable;
+    //   DEBUG_PRINT("Disabling learning\n");
+    // }
   }
 
   control->controlMode = controlModeForceTorque;
