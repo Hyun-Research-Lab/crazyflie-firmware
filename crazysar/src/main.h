@@ -5,10 +5,10 @@
 #define CRAZYSAR_NETWORK_RATE RATE_100_HZ
 #define CRAZYSAR_ATTITUDE_RATE RATE_500_HZ
 
-#define ROD_LENGTH 0.37f
+#define ROD_LENGTH 0.395f
 
 #define LED_LEADER   0b10110101 // red and blue
-#define LED_ROOT     0b10101011 // green and blue
+#define LED_ROOT     LED_LEADER //0b10101011 // green and blue
 #define LED_FOLLOWER 0b10000000 // all off
 
 #define LEADER_FOLLOWER_DATA_SIZE 10

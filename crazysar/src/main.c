@@ -62,7 +62,15 @@ static uint8_t deactivated = 0;
 
 static float t = 0;
 
-static struct vec target_position_root = { 0, 0, 0 }; // { -1.0f, 0.5f, 2.0f };
+static struct vec target_position_root = { 0, 0, 0 };
+// static struct vec target_position_root = { -2.45f, -ROD_LENGTH, 1.9f }; // for node 2
+// static struct vec target_position_root = { -2.45f, 0.0f, 1.9f }; // for node 3
+static float fault_time = 0.0f; // Specify a time to trigger a fault
+
+static float acc_thresh = 0.5f;
+static uint8_t counter_thresh = 20;
+static float rod_length_low = 0.2f;
+static float rod_length_high = 0.2f;
 
 // Quadrotor parameters
 static struct vec J = { 16.571710e-6f, 16.655602e-6f, 29.261652e-6f }; // kg m^2
@@ -150,7 +158,7 @@ static struct vec ev_rob = { 0, 0, 0 };
 static struct vec ei_rob = { 0, 0, 0 };
 #endif
 
-static float flap_freq = 0.0f;
+static float flap_period = 0.0f;
 static float flap_amp = 0.0f;
 static float flap_phase = 0.0f;
 static uint8_t wave = 0;
@@ -260,13 +268,13 @@ void setFollowerSetpoint() {
 
   struct vec rod_normalized = vnormalize(mkvec((float)rod[0], (float)rod[1], (float)rod[2]));
 
-  if (flap_freq == 0 && flap_amp == 0) {
+  if (flap_period == 0 && flap_amp == 0) {
     re_d = vscl(l, rod_normalized);
     re_d_dot = vzero();
     re_d_ddot = vzero();
 
   } else {
-    float flap_freq_rad = 2.0f * M_PI_F * flap_freq;
+    float flap_freq_rad = 2.0f * M_PI_F / flap_period;
 
     float theta =      flap_amp * cosf(flap_freq_rad * t + radians(flap_phase));
     float theta_dot =  flap_amp * -flap_freq_rad * sinf(flap_freq_rad * t + radians(flap_phase));
@@ -437,11 +445,16 @@ void appMain() {
         setFollowerSetpoint();
 
         // If the parent or parent's rod has a fault...
-        if ((acc_norm > 0.5f && counter > 20) ||
-            (l > ROD_LENGTH + 0.20f || (0 < l && l < ROD_LENGTH - 0.10f))) {
+        if ((acc_norm > acc_thresh && counter > counter_thresh) ||
+            (l > ROD_LENGTH + rod_length_high || (0 < l && l < ROD_LENGTH - rod_length_low))) {
           is_root = true;
           setLedBitmask();
         }
+      }
+
+      // Trigger a fault at a specific time
+      if (fault_time != 0.0f && t > fault_time) {
+        fault = 1;
       }
 
       packet.port = node;
@@ -761,7 +774,7 @@ PARAM_ADD(PARAM_FLOAT, ki_rob, &ki_rob)
 
 PARAM_ADD(PARAM_FLOAT, follower_yaw, &follower_yaw)
 
-PARAM_ADD(PARAM_FLOAT, flap_freq, &flap_freq)
+PARAM_ADD(PARAM_FLOAT, flap_period, &flap_period)
 PARAM_ADD(PARAM_FLOAT, flap_amp, &flap_amp)
 PARAM_ADD(PARAM_FLOAT, flap_phase, &flap_phase)
 PARAM_ADD(PARAM_UINT8, wave, &wave)
@@ -769,6 +782,12 @@ PARAM_ADD(PARAM_UINT8, wave, &wave)
 PARAM_ADD_WITH_CALLBACK(PARAM_UINT32, config_params, &config_params, &decodeConfigParams)
 
 PARAM_ADD(PARAM_UINT8, fault, &fault)
+PARAM_ADD(PARAM_FLOAT, fault_time, &fault_time)
+
+// PARAM_ADD(PARAM_FLOAT, acc_thresh, &acc_thresh)
+// PARAM_ADD(PARAM_UINT8, co_thresh, &counter_thresh)
+// PARAM_ADD(PARAM_FLOAT, rl_low, &rod_length_low)
+// PARAM_ADD(PARAM_FLOAT, rl_high, &rod_length_high)
 
 PARAM_GROUP_STOP(crazysar)
 
