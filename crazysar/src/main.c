@@ -461,6 +461,7 @@ void appMain() {
       memcpy(packet.data, self_data.raw, LEADER_FOLLOWER_DATA_SIZE * sizeof(float));
 
       // vTaskDelay(M2T(node)); // Stagger transmissions based on node ID
+      vTaskDelay(M2T(rand() % (F2T(CRAZYSAR_NETWORK_RATE) - 1))); // Stagger transmissions randomly
       radiolinkSendP2PPacketBroadcast(&packet);
     }
   }
