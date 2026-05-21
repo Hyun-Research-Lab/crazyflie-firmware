@@ -128,13 +128,13 @@ static struct mat33 R = { .m = {
 } };
 
 static LeaderFollowerData_t self_data = {
-  .m = CF_MASS, // kg
+  // .m = CF_MASS, // kg
   .F_d_bar = { 0, 0, 0 },
   .x = { 0, 0, 0 },
   .v = { 0, 0, 0 }
 };
 static LeaderFollowerData_t parent_data = {
-  .m = CF_MASS, // Initialize to own mass in case of no data
+  // .m = CF_MASS, // Initialize to own mass in case of no data
   .F_d_bar = { 0, 0, 0 },
   .x = { 0, 0, 0 },
   .v = { 0, 0, 0 }
@@ -351,8 +351,8 @@ void setFollowerSetpoint() {
     disturbance_observer_step(&u, &re, &re_dot, &t1);
 #endif
 
-  self_data.F_d_bar = vscl(self_data.m, vadd(vdiv(parent_data.F_d_bar, parent_data.m), u));
-  struct vec F_d = vadd(self_data.F_d_bar, vscl(self_data.m*GRAVITY_MAGNITUDE, vbasis(2)));
+  self_data.F_d_bar = vscl(CF_MASS, vadd(vdiv(parent_data.F_d_bar, CF_MASS), u));
+  struct vec F_d = vadd(self_data.F_d_bar, vscl(CF_MASS * GRAVITY_MAGNITUDE, vbasis(2)));
 
   // Send F_d to the controller
   float f = vdot(F_d, mvmul(R, vbasis(2)));
@@ -588,12 +588,12 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     ei = vadd(ei, vscl(dt, vadd(ev, vscl(c1, ex))));
     ei = vclampscl2(ei, -sigma, sigma);
     
-    self_data.F_d_bar = vscl(self_data.m, vadd4(
+    self_data.F_d_bar = vscl(CF_MASS, vadd4(
       vscl(-kx, ex),
       vscl(-kv, ev),
       vscl(-ki, ei),
       a_d));
-    struct vec F_d = vadd(self_data.F_d_bar, vscl(self_data.m*GRAVITY_MAGNITUDE, vbasis(2)));
+    struct vec F_d = vadd(self_data.F_d_bar, vscl(CF_MASS * GRAVITY_MAGNITUDE, vbasis(2)));
     f = vdot(F_d, mvmul(R, vbasis(2)));
     
     if (f < 0.01f) {
@@ -619,7 +619,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
     ei_vel = vadd(ei_vel, vscl(dt, ev));
     // ei = vclampscl2(ei, -sigma, sigma);
     
-    self_data.F_d_bar = vscl(self_data.m, vadd3(
+    self_data.F_d_bar = vscl(CF_MASS, vadd3(
       vscl(-kv, ev),
       vscl(-ki_vel, ei_vel),
       a_d));
@@ -629,10 +629,10 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       float x3 = state->position.z;
       float x3_d = setpoint->position.z;
 
-      self_data.F_d_bar.z += -self_data.m*kx*(x3 - x3_d);
+      self_data.F_d_bar.z += -CF_MASS*kx*(x3 - x3_d);
     }
 
-    struct vec F_d = vadd(self_data.F_d_bar, vscl(self_data.m*GRAVITY_MAGNITUDE, vbasis(2)));
+    struct vec F_d = vadd(self_data.F_d_bar, vscl(CF_MASS * GRAVITY_MAGNITUDE, vbasis(2)));
     f = vdot(F_d, mvmul(R, vbasis(2)));
     
     if (f < 0.01f) {
@@ -675,7 +675,7 @@ void controllerOutOfTree(control_t *control, const setpoint_t *setpoint, const s
       struct vec b3 = mcolumn(R, 2);
       struct vec b3_d = mcolumn(R_d, 2);
       struct vec F_d = vscl(f/vdot(b3_d, b3), b3_d);
-      self_data.F_d_bar = vsub(F_d, vscl(self_data.m*GRAVITY_MAGNITUDE, vbasis(2)));
+      self_data.F_d_bar = vsub(F_d, vscl(CF_MASS * GRAVITY_MAGNITUDE, vbasis(2)));
     }
   }
 
@@ -750,7 +750,7 @@ PARAM_ADD(PARAM_UINT8, node, &node)
 PARAM_ADD(PARAM_UINT8, parent, &parent)
 PARAM_ADD_WITH_CALLBACK(PARAM_UINT8, is_root, &is_root, &setLedBitmask)
 
-PARAM_ADD(PARAM_FLOAT, m, &self_data.m)
+// PARAM_ADD(PARAM_FLOAT, m, &self_data.m)
 
 PARAM_ADD(PARAM_FLOAT, kx, &kx)
 PARAM_ADD(PARAM_FLOAT, kv, &kv)
