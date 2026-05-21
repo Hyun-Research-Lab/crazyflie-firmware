@@ -51,6 +51,7 @@
 #include "param.h"
 #include "log.h"
 #include "static_mem.h"
+#include "num.h"
 #include "main.h"
 
 static void packetBroadcastTask(void *param);
@@ -227,7 +228,13 @@ void p2pCB(P2PPacket* packet) {
   counter = 0;
 
   // Get parent information
-  memcpy(parent_data.raw, packet->data, LEADER_FOLLOWER_DATA_SIZE * sizeof(float));
+  uint16_t parent_data_half[LEADER_FOLLOWER_DATA_SIZE] = {0};
+
+  memcpy(parent_data_half, packet->data, LEADER_FOLLOWER_DATA_SIZE * sizeof(uint16_t));
+
+  for (int i = 0; i < LEADER_FOLLOWER_DATA_SIZE; i++) {
+    parent_data.raw[i] = half2single(parent_data_half[i]);
+  }
 }
 
 void setRootSetpoint() {
@@ -483,7 +490,13 @@ static void packetBroadcastTask(void *param) {
 
     if (!fault) {
       packet.port = node;
-      memcpy(packet.data, self_data.raw, LEADER_FOLLOWER_DATA_SIZE * sizeof(float));
+
+      uint16_t self_data_half[LEADER_FOLLOWER_DATA_SIZE];
+      for (int i = 0; i < LEADER_FOLLOWER_DATA_SIZE; i++) {
+        self_data_half[i] = single2half(self_data.raw[i]);
+      }
+
+      memcpy(packet.data, self_data_half, LEADER_FOLLOWER_DATA_SIZE * sizeof(uint16_t));
 
       // vTaskDelay(M2T((node - 1) * 2 + rand() % 3)); // Stagger transmissions based on node ID
       vTaskDelay(M2T(rand() % (F2T(CRAZYSAR_BROADCAST_RATE) - 1))); // Stagger transmissions randomly
