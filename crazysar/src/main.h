@@ -11,18 +11,16 @@
 #define LED_ROOT     LED_LEADER //0b10101011 // green and blue
 #define LED_FOLLOWER 0b10000000 // all off
 
-#define LEADER_FOLLOWER_DATA_SIZE 10
+#define LEADER_FOLLOWER_DATA_SIZE 9
 
-typedef struct LeaderFollowerData_s {
-  union {
-    struct {
-      float m;
-      struct vec F_d_bar;
-      struct vec x;
-      struct vec v;
-    };
-    float raw[LEADER_FOLLOWER_DATA_SIZE];
+typedef union LeaderFollowerData_s {
+  struct {
+    // float m;
+    struct vec F_d_bar;
+    struct vec x;
+    struct vec v;
   };
+  float raw[LEADER_FOLLOWER_DATA_SIZE];
 } LeaderFollowerData_t;
 
 void disturbance_observer_step(struct vec* u, const struct vec* re, const struct vec* re_dot, const struct vec* b1);
