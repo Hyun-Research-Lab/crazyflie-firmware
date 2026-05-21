@@ -50,7 +50,10 @@
 #include "configblock.h"
 #include "param.h"
 #include "log.h"
+#include "static_mem.h"
 #include "main.h"
+
+static void packetBroadcastTask(void *param);
 
 // #define PID_ROBUSTNESS
 
@@ -177,6 +180,8 @@ static paramVarId_t paramIdLedBitmask;
 static uint8_t counter = 0;
 
 static float acc_norm = 0.0f; // Gs
+
+STATIC_MEM_TASK_ALLOC(packetBroadcastTask, 300);
 
 #ifdef PID_ROBUSTNESS
 static inline struct mat33 vouter(struct vec a, struct vec b) {
@@ -331,7 +336,7 @@ void setFollowerSetpoint() {
 #ifdef PID_ROBUSTNESS
     ex_rob = vsub(re, re_d);
     ev_rob = vsub(re_dot, re_d_dot);
-    ei_rob = vadd(ei_rob, vdiv(ex_rob, CRAZYSAR_NETWORK_RATE));
+    ei_rob = vadd(ei_rob, vdiv(ex_rob, CRAZYSAR_UPDATE_RATE));
     ei_rob = vclampscl2(ei_rob, -sigma_rob, sigma_rob);
 
     struct mat33 P_onto_re = mscl(1.0f/vdot(re, re), vouter(re, re));
@@ -382,24 +387,24 @@ void appMain() {
   node = (uint8_t)((address) & 0xFF);
 
   paramIdLedBitmask = paramGetVarId("led", "bitmask");
+
+  // Create a separate task to broadcast packets
+  STATIC_MEM_TASK_CREATE(packetBroadcastTask, packetBroadcastTask, "PACKET_BROADCAST", NULL, 1);
+
+  // Register the callback
+  p2pRegisterCB(p2pCB);
   
   // Wait for the parent to be set
   while (parent == 0) {
     vTaskDelay(M2T(100));
   }
 
-  // Register the callback
-  p2pRegisterCB(p2pCB);
-  
-  P2PPacket packet;
-  packet.size = LEADER_FOLLOWER_DATA_SIZE * sizeof(float);
-
   TickType_t xLastWakeTime = xTaskGetTickCount();
 
   while (1) {
-    vTaskDelayUntil(&xLastWakeTime, F2T(CRAZYSAR_NETWORK_RATE));
+    vTaskDelayUntil(&xLastWakeTime, F2T(CRAZYSAR_UPDATE_RATE));
 
-    t += 1.0f / CRAZYSAR_NETWORK_RATE;
+    t += 1.0f / CRAZYSAR_UPDATE_RATE;
 
     // Increment counter
     if (node == parent || is_root) {
@@ -457,10 +462,31 @@ void appMain() {
         fault = 1;
       }
 
+      // The above code takes 0.2ms maximum
+    }
+  }
+}
+
+static void packetBroadcastTask(void *param) {
+  P2PPacket packet;
+  packet.size = LEADER_FOLLOWER_DATA_SIZE * sizeof(float);
+
+  // Wait for the parent to be set
+  while (parent == 0) {
+    vTaskDelay(M2T(100));
+  }
+
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+
+  while (1) {
+    vTaskDelayUntil(&xLastWakeTime, F2T(CRAZYSAR_BROADCAST_RATE));
+
+    if (!fault) {
       packet.port = node;
       memcpy(packet.data, self_data.raw, LEADER_FOLLOWER_DATA_SIZE * sizeof(float));
 
-      // vTaskDelay(M2T(node)); // Stagger transmissions based on node ID
+      // vTaskDelay(M2T((node - 1) * 2 + rand() % 3)); // Stagger transmissions based on node ID
+      vTaskDelay(M2T(rand() % (F2T(CRAZYSAR_BROADCAST_RATE) - 1))); // Stagger transmissions randomly
       radiolinkSendP2PPacketBroadcast(&packet);
     }
   }
